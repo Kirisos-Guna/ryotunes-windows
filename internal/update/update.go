@@ -54,6 +54,9 @@ const (
 	managerPacman
 	managerXBPS
 	managerDNF
+	// managerWindows is the per-user Inno Setup installation of the
+	// Windows port; see windows.go.
+	managerWindows
 )
 
 type installation struct {
@@ -177,6 +180,8 @@ func Install(ctx context.Context, requested string) (model.UpdateResult, error) 
 		err = installXBPS(ctx, packagePath, staging, requested)
 	case managerDNF:
 		err = installDNF(ctx, packagePath, requested)
+	case managerWindows:
+		err = installWindows(packagePath)
 	default:
 		err = errors.New("Self update is not available for this installation.")
 	}
@@ -272,7 +277,9 @@ func releaseInfo(rel *release, current string, mgr manager, reason *string) mode
 	_, _, complete := selectAssets(rel, latest, mgr)
 	if !complete && info.UnsupportedReason == nil {
 		text := "This release has no complete x86_64 package and checksum. View the changelog or check again after the release build finishes."
-		if mgr == managerPacman || mgr == managerXBPS || mgr == managerNone {
+		if mgr == managerWindows {
+			text = "This release has no Windows installer and checksum yet. Check again after the release build finishes."
+		} else if mgr == managerPacman || mgr == managerXBPS || mgr == managerNone {
 			text = "This release has no complete x86_64 Arch package and checksum. View the changelog or check again after the release build finishes."
 		}
 		info.UnsupportedReason = &text
@@ -304,6 +311,9 @@ func selectAssets(rel *release, version string, mgr manager) (asset, asset, bool
 }
 
 func packageName(version string, mgr manager) string {
+	if mgr == managerWindows {
+		return windowsSetupName(version)
+	}
 	if mgr == managerDNF {
 		return "ryotunes-" + version + "-1.x86_64.rpm"
 	}
@@ -357,6 +367,9 @@ func compareVersion(left, right semver) int {
 }
 
 func detectInstallation(ctx context.Context) (installation, error) {
+	if runtime.GOOS == "windows" {
+		return detectWindowsInstallation()
+	}
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return installation{}, errors.New("Self update supports the x86_64 Arch, Void Linux, and Fedora packages. Download a release for your platform instead.")
 	}

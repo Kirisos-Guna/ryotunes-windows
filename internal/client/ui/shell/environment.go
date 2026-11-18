@@ -167,5 +167,6 @@ func (s *uiShell) environment(now time.Time, theme *look.Theme) *env.Env {
 		})
 	}
 	act.OpenAuthURLs(e)
+	act.CheckUpdatesOnce(e)
 	return e
 }

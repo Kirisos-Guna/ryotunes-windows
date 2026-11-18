@@ -137,7 +137,7 @@ func openExternal(_ context.Context, _ *App, p protocol.URLParams) (protocol.Nul
 	if u.User != nil {
 		return protocol.Null{}, fmt.Errorf("Links containing embedded credentials are not opened.")
 	}
-	if err := spawn.Command(context.Background(), "xdg-open", p.URL).Start(); err != nil {
+	if err := spawn.Open(context.Background(), p.URL).Start(); err != nil {
 		return protocol.Null{}, fmt.Errorf("Couldn't open the browser: %v", err)
 	}
 	return protocol.Null{}, nil

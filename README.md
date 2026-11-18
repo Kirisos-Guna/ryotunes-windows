@@ -29,7 +29,15 @@ powershell -ExecutionPolicy Bypass -File release\windows\build-windows.ps1
 No C compiler is needed: everything builds with `CGO_ENABLED=0`. See
 [docs/WINDOWS-PORT.md](docs/WINDOWS-PORT.md) for what changed from upstream
 and what is not available on Windows (MPRIS/tray, the PipeWire visualiser,
-Ryoku theming, self-update).
+Ryoku theming).
+
+## Updates
+
+A daily GitHub Action watches upstream's `hyperion` branch. When upstream
+changes, it builds and publishes a new Windows release on its own. Ryotunes
+checks for new releases at startup and installs them from
+**Settings › About › Install**, so there is nothing to check by hand.
+Details: [docs/WINDOWS-PORT.md](docs/WINDOWS-PORT.md#staying-up-to-date-with-upstream).
 
 Licensed GPL-3.0-or-later, like upstream. Not affiliated with the Ryoku
 project; please report Windows-specific problems here, not upstream.

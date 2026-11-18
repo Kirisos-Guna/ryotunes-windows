@@ -49,8 +49,13 @@ Linux-only features that are off on Windows
 -------------------------------------------
   - MPRIS / media keys and the system tray (they use D-Bus)
   - The PipeWire spectrum visualiser
-  - Ryoku desktop theming and in-app self-update (the app links to the
-    release page instead)
+  - Ryoku desktop theming
+
+Updates
+-------
+Ryotunes checks for a new release shortly after it opens and shows a notice
+when there is one. Install it from Settings > About > Install: Ryotunes
+downloads the new installer, verifies it, updates itself and reopens.
 
 Licence
 -------

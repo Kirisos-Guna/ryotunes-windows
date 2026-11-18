@@ -28,3 +28,14 @@
 
 # Windows runtime binaries (libmpv, yt-dlp) fetched by build-windows.ps1
 /third_party-bin/
+
+# A copy of Ryotunes installed into the repository root by the Setup program
+/ryotunes.exe
+/ryotunesd.exe
+/ryotunes-cli.exe
+/ryotunes.ico
+/libmpv-2.dll
+/tools/
+/unins000.*
+/BUNDLED-LICENSES.txt
+/README-WINDOWS.txt

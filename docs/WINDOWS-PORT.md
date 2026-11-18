@@ -46,7 +46,8 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 | Discord Rich Presence | `$XDG_RUNTIME_DIR/discord-ipc-N` | `\\.\pipe\discord-ipc-N` |
 | Browser cookie import | Linux profile paths, `peanuts`/keyring AES-CBC | Windows profile paths, DPAPI-unwrapped AES-GCM `v10` keys, default browser from the registry |
 | Spotify decoders | go-librespot FLAC/MP3/Vorbis via CGO | `third_party/go-librespot` is vendored with `!cgo` stubs; Ryotunes plays Spotify audio through libmpv, so they are never used |
-| Self update | pacman / xbps / dnf via pkexec | Not supported; update checks link to this repository's releases |
+| Self update | pacman / xbps / dnf via pkexec | Downloads this repository's `Ryotunes-Setup-<version>-x64.exe`, verifies its SHA-256 and runs it silently (`internal/update/windows.go`) |
+| Window maximize / fullscreen | Gio defaults | `third_party/gioui` is vendored with Windows fixes: maximize fills exactly the work area (no ghost caption buttons when the work area is inset), and fullscreen covers the whole monitor |
 
 ## Not available on Windows
 
@@ -68,3 +69,27 @@ work.
 The upstream GitHub workflows (Arch, Fedora and Void packaging) are kept in
 `release/linux-ci/` for reference. Only `.github/workflows/windows.yml` runs
 here.
+
+## Staying up to date with upstream
+
+`.github/workflows/upstream-sync.yml` runs every day (and on demand from the
+Actions tab). It compares `release/windows/UPSTREAM_COMMIT` with the head of
+upstream's `hyperion` branch. When upstream has moved, it:
+
+1. applies the upstream diff on top of this port (`git apply --3way`),
+2. runs `go vet` and `go build` on Windows,
+3. builds the installer,
+4. commits to `main`, tags the next version and publishes a release.
+
+The version follows upstream's `VERSION` when that is newer than the last tag,
+and otherwise bumps the patch number. If the changes conflict or the build
+fails, the workflow publishes nothing and opens an issue. GitHub emails you
+about it. Fix the port, set `UPSTREAM_COMMIT` to the upstream commit you
+merged, and push.
+
+Installed copies find new releases on their own. About 20 seconds after
+Ryotunes opens, it checks this repository's releases and shows a notice when
+one is newer. **Settings › About › Install** downloads the new
+`Ryotunes-Setup-<version>-x64.exe`, checks its SHA-256, runs it silently and
+reopens Ryotunes. This works for copies installed with the Setup program;
+portable copies only link to the release page.

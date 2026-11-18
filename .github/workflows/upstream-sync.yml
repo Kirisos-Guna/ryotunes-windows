@@ -1,0 +1,187 @@
+name: Upstream sync
+
+# Once a day, look for new commits on the upstream Go rewrite
+# (ryoku-dev/ryotunes, branch hyperion). When there are any:
+#   - apply them on top of this port,
+#   - vet and build on Windows,
+#   - build the installer,
+#   - commit to main, tag the next version and publish a release.
+# If the changes do not apply cleanly or the build fails, open an issue
+# instead (GitHub emails the repository owner) and publish nothing.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/ryoku-dev/ryotunes.git
+  UPSTREAM_BRANCH: hyperion
+
+jobs:
+  sync:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Look for upstream changes
+        id: check
+        run: |
+          old=$(tr -d '[:space:]' < release/windows/UPSTREAM_COMMIT)
+          git fetch --no-tags "$UPSTREAM_REPO" "$UPSTREAM_BRANCH"
+          new=$(git rev-parse FETCH_HEAD)
+          echo "old=$old" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          echo "short=${new:0:7}" >> "$GITHUB_OUTPUT"
+          if [ "$old" = "$new" ]; then
+            echo "Upstream is unchanged at $old."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Upstream moved: $old -> $new"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply upstream changes
+        id: apply
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          set -o pipefail
+          old=${{ steps.check.outputs.old }}
+          new=${{ steps.check.outputs.new }}
+          if ! git cat-file -e "$old^{commit}" 2>/dev/null; then
+            echo "reason=The recorded upstream commit $old is no longer in the upstream history (force-push?)." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          git log --no-merges --format='- %s (%h)' "$old..$new" > upstream-log.md
+          # Upstream's own CI lives in release/linux-ci here; skip .github.
+          git diff --binary "$old" "$new" -- . ':(exclude).github' > upstream.patch
+          if ! git apply --3way --index upstream.patch 2>&1 | tee apply.log; then
+            echo "reason=The upstream changes conflict with the Windows port." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "$new" > release/windows/UPSTREAM_COMMIT
+
+      - name: Vet and build
+        id: build
+        if: steps.check.outputs.changed == 'true'
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -o pipefail
+          { go vet ./... && go build ./...; } 2>&1 | tee build.log
+
+      - name: Pick the release version
+        id: version
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          upstream=$(tr -d '[:space:]' < VERSION)
+          last=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 | sed 's/^v//')
+          last=${last:-0.0.0}
+          # Follow upstream's version when it moved past ours; otherwise
+          # bump our patch number.
+          if [ "$(printf '%s\n%s\n' "$upstream" "$last" | sort -V | tail -n1)" != "$last" ]; then
+            version=$upstream
+          else
+            IFS=. read -r major minor patch <<< "$last"
+            version="$major.$minor.$((patch + 1))"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (upstream VERSION $upstream, last tag $last)"
+
+      - name: Install Inno Setup
+        if: steps.check.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build the installer
+        if: steps.check.outputs.changed == 'true'
+        shell: pwsh
+        run: ./release/windows/build-windows.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Commit, tag and release
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${{ steps.version.outputs.version }}
+          short=${{ steps.check.outputs.short }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- . ':(exclude)upstream.patch' ':(exclude)upstream-log.md' ':(exclude)apply.log' ':(exclude)build.log'
+          {
+            echo "Sync upstream ryoku-dev/ryotunes@$short"
+            echo
+            echo "Upstream commits:"
+            cat upstream-log.md
+          } > commit-msg.txt
+          git commit -F commit-msg.txt
+          git tag "v$version"
+          git push origin HEAD:main "v$version"
+          {
+            echo "Automatic build of Ryotunes for Windows with the latest upstream changes"
+            echo "(ryoku-dev/ryotunes \`hyperion\` @ \`$short\`)."
+            echo
+            echo "Install by running **Ryotunes-Setup-$version-x64.exe**, or from inside Ryotunes:"
+            echo "Settings › About › Install."
+            echo
+            echo "### Upstream changes"
+            cat upstream-log.md
+          } > notes.md
+          gh release create "v$version" \
+            "dist/Ryotunes-Setup-$version-x64.exe" \
+            "dist/Ryotunes-Setup-$version-x64.exe.sha256" \
+            --title "Ryotunes for Windows $version" --notes-file notes.md
+
+      - name: Report a problem
+        if: failure() && steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short=${{ steps.check.outputs.short }}
+          title="Upstream sync needs attention (ryoku-dev/ryotunes@$short)"
+          if gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number' | grep -q .; then
+            echo "An issue for $short is already open."
+            exit 0
+          fi
+          {
+            echo "The daily upstream sync could not publish an update automatically."
+            echo
+            echo "- Reason: ${{ steps.apply.outputs.reason || 'The Windows vet/build or packaging failed.' }}"
+            echo "- Upstream: https://github.com/ryoku-dev/ryotunes/compare/${{ steps.check.outputs.old }}...${{ steps.check.outputs.new }}"
+            echo "- Run log: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "### Upstream commits"
+            cat upstream-log.md 2>/dev/null || echo "(unavailable)"
+            for log in apply.log build.log; do
+              if [ -s "$log" ]; then
+                echo
+                echo "### $log (last 60 lines)"
+                echo '```'
+                tail -n 60 "$log"
+                echo '```'
+              fi
+            done
+            echo
+            echo "Nothing was released. Fix the port by hand, update release/windows/UPSTREAM_COMMIT to the upstream commit, and push; the next run continues from there."
+          } > issue.md
+          gh issue create --title "$title" --body-file issue.md

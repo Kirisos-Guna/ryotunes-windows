@@ -58,6 +58,8 @@ Name: "{autodesktop}\Ryotunes"; Filename: "{app}\ryotunes.exe"; IconFilename: "{
 
 [Run]
 Filename: "{app}\ryotunes.exe"; Description: "{cm:LaunchProgram,Ryotunes}"; Flags: nowait postinstall skipifsilent
+; In-app updates run Setup silently with /RELAUNCH=1: reopen Ryotunes after.
+Filename: "{app}\ryotunes.exe"; Flags: nowait; Check: ShouldRelaunch
 
 [UninstallRun]
 ; Stop the background player so its files can be removed.
@@ -76,8 +78,16 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ryotunesd.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
+function ShouldRelaunch(): Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  { Started by the running daemon: let it answer the update request first. }
+  if ShouldRelaunch() then
+    Sleep(2500);
   StopRunningCopies();
   Result := '';
 end;

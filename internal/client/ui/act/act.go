@@ -79,7 +79,7 @@ func OpenURL(e *env.Env, rawURL string) {
 		return
 	}
 	e.Go(func(ctx context.Context) {
-		if err := spawn.Command(ctx, "xdg-open", rawURL).Run(); err != nil {
+		if err := spawn.Open(ctx, rawURL).Run(); err != nil {
 			toast(e, "Could not open your browser", env.ToastError)
 		}
 	})
