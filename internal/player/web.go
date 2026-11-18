@@ -77,6 +77,12 @@ func (p *Player) loadWeb(ctx context.Context, s model.Stream, startAt float64, p
 	p.idle.Store(false)
 	p.live.Store(false)
 	p.paused.Store(paused)
+	if paused {
+		// Restoring a paused song (Ryotunes reopening) needs no browser:
+		// play loads it then, at this position (webResume -> webReload).
+		// Loading it now would also race a play pressed meanwhile.
+		return nil
+	}
 
 	engine := p.web.engine
 	signedIn, err := engine.SignedIn(ctx)
