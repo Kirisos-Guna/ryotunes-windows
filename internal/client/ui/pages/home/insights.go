@@ -144,6 +144,11 @@ func (v *insightsView) prepare() {
 		}
 	}
 	if totalPlays == 0 {
+		// No plays in the window: show the "play something" line, not the
+		// charts. The values were filled above, and leaving them made the
+		// page draw readings whose name and format were never set, which
+		// crashed the client (nil format) as soon as Home scrolled to them.
+		plays.values, seconds.values = plays.values[:0], seconds.values[:0]
 		v.quiet = true
 		return
 	}
@@ -305,7 +310,11 @@ func (r *reading) layout(gtx layout.Context, e *env.Env, fraction float32) image
 // figure formats n, keeping the last string while n has not changed.
 func (r *reading) figure(n float64) string {
 	if r.shown == "" || n != r.shownN {
-		r.shown, r.shownN = r.format(n), n
+		format := r.format
+		if format == nil {
+			format = formatCount
+		}
+		r.shown, r.shownN = format(n), n
 	}
 	return r.shown
 }
