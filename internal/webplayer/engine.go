@@ -1,12 +1,19 @@
 // Package webplayer plays Spotify through Spotify's own Web Player.
 //
 // Spotify no longer gives librespot clients the keys to decrypt its audio,
-// and Ryotunes does not circumvent Spotify's DRM. Like Myspoti's desktop
-// host, this package instead runs open.spotify.com in a browser the daemon
-// starts and hides (Brave, else Microsoft Edge or Chrome, whose licensed
-// Widevine module decrypts the audio), injects Myspoti's player bridge (player-bridge.js) and drives
-// the page's own player through the Chrome DevTools Protocol. Plays count
-// for the artist and the listener exactly as in a browser.
+// and Ryotunes does not circumvent Spotify's DRM. Like Myspoti, this package
+// instead runs open.spotify.com in a browser the daemon starts and hides
+// (Brave, else Microsoft Edge or Chrome, whose licensed Widevine module
+// decrypts the audio) and drives the page's own player through Myspoti's
+// player bridge (extension/player-bridge.js). Plays count for the artist and
+// the listener exactly as in a browser.
+//
+// The browser is not automated: Spotify refuses licences to a page that says
+// it is controlled by automation (remote debugging sets navigator.webdriver),
+// and then skips to other songs. As Myspoti's Android host injects the bridge
+// into its WebView, Ryotunes loads a small extension of its own (extension/)
+// into the player's profile: it injects the bridge and relays its messages
+// over a local WebSocket, which only a holder of the per-launch token can use.
 //
 // The browser keeps its own profile in %LOCALAPPDATA%\Ryotunes\spotify-player:
 // the listener signs in to Spotify once, on Spotify's own page, in a window
@@ -15,28 +22,32 @@ package webplayer
 
 import (
 	"context"
-	_ "embed"
+	"crypto/rand"
+	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-//go:embed player-bridge.js
-var bridgeJS string
+//go:embed extension
+var extensionFiles embed.FS
 
 const (
 	playerURL  = "https://open.spotify.com/preferences"
 	loginURL   = "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2Fpreferences"
-	binding    = "__mspHostPost"
 	readyLimit = 45 * time.Second
 )
 
@@ -81,19 +92,31 @@ func (s State) Position(now time.Time) float64 {
 
 // Engine owns the hidden browser and its player page.
 type Engine struct {
-	log     *slog.Logger
-	profile string
+	log       *slog.Logger
+	profile   string
+	extension string
 
 	startMu sync.Mutex // serializes Start
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
-	conn      *cdp
+	exited    chan struct{}
+	server    *http.Server
+	token     string
+	page      *websocket.Conn
+	writeMu   sync.Mutex
 	ready     chan struct{}
 	readyDone bool
 	shown     bool
 	state     State
 	listeners []func(State)
+	nextID    int64
+	pending   map[int64]chan callResult
+}
+
+type callResult struct {
+	value json.RawMessage
+	err   error
 }
 
 var (
@@ -111,7 +134,12 @@ func Default() *Engine {
 		if local == "" {
 			return
 		}
-		defaultEngine = &Engine{log: slog.Default(), profile: filepath.Join(local, "Ryotunes", "spotify-player")}
+		root := filepath.Join(local, "Ryotunes")
+		defaultEngine = &Engine{
+			log: slog.Default(), profile: filepath.Join(root, "spotify-player"),
+			extension: filepath.Join(root, "spotify-player-extension"),
+			pending:   map[int64]chan callResult{},
+		}
 	})
 	return defaultEngine
 }
@@ -123,11 +151,11 @@ func (e *Engine) OnState(fn func(State)) {
 	e.mu.Unlock()
 }
 
-// Running reports whether the browser is connected.
+// Running reports whether the browser is running.
 func (e *Engine) Running() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.conn != nil
+	return e.cmd != nil
 }
 
 // State returns the most recent state.
@@ -142,11 +170,11 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.startMu.Lock()
 	defer e.startMu.Unlock()
 	e.mu.Lock()
-	running := e.conn != nil
+	running := e.cmd != nil
 	ready := e.ready
 	e.mu.Unlock()
 	if !running {
-		if err := e.launch(ctx); err != nil {
+		if err := e.launch(); err != nil {
 			return err
 		}
 		e.mu.Lock()
@@ -163,7 +191,9 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 }
 
-func (e *Engine) launch(ctx context.Context) error {
+// launch starts the relay server, writes the extension with its address
+// and starts the browser with it.
+func (e *Engine) launch() error {
 	browser, err := findBrowser()
 	if err != nil {
 		return err
@@ -171,15 +201,27 @@ func (e *Engine) launch(ctx context.Context) error {
 	if err := os.MkdirAll(e.profile, 0o700); err != nil {
 		return err
 	}
+	closeLeftovers(e.profile)
 	if strings.EqualFold(filepath.Base(browser), "brave.exe") {
 		optInWidevine(e.profile)
 	}
-	portFile := filepath.Join(e.profile, "DevToolsActivePort")
-	_ = os.Remove(portFile)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("start the Spotify player relay: %w", err)
+	}
+	token := randomToken()
+	address := "ws://" + listener.Addr().String() + "/ryotunes/" + token
+	if err := e.writeExtension(address); err != nil {
+		listener.Close()
+		return fmt.Errorf("prepare the Spotify player extension: %w", err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(e.serveRelay), ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+
 	args := []string{
-		"--remote-debugging-port=0",
-		"--remote-allow-origins=http://127.0.0.1",
 		"--user-data-dir=" + e.profile,
+		"--load-extension=" + e.extension,
 		"--no-first-run", "--no-default-browser-check",
 		"--autoplay-policy=no-user-gesture-required",
 		"--disable-background-timer-throttling",
@@ -197,91 +239,132 @@ func (e *Engine) launch(ctx context.Context) error {
 	cmd := exec.Command(browser, args...)
 	detachBrowser(cmd)
 	if err := cmd.Start(); err != nil {
+		server.Close()
 		return fmt.Errorf("start the browser for Spotify: %w", err)
 	}
-	go func() { _ = cmd.Wait() }()
-	stop := func() { _ = cmd.Process.Kill() }
-
-	// Keep the window parked out of sight (off the taskbar) while the
-	// browser runs: Edge can restyle or recreate it, so check every second.
-	go e.keepParked(cmd)
-
-	port, err := waitPort(ctx, portFile)
-	if err != nil {
-		stop()
-		return err
-	}
-	target, err := waitPageTarget(ctx, port)
-	if err != nil {
-		stop()
-		return err
-	}
-	conn, err := dialCDP(ctx, target)
-	if err != nil {
-		stop()
-		return fmt.Errorf("connect to the Spotify player: %w", err)
-	}
+	exited := make(chan struct{})
 	e.mu.Lock()
-	e.cmd, e.conn = cmd, conn
+	e.cmd, e.exited, e.server, e.token = cmd, exited, server, token
 	e.ready, e.readyDone = make(chan struct{}), false
 	e.mu.Unlock()
-	go e.events(conn)
-
-	setup := []struct {
-		method string
-		params any
-	}{
-		{"Runtime.enable", nil},
-		{"Page.enable", nil},
-		{"Runtime.addBinding", map[string]any{"name": binding}},
-		{"Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": bridgeJS}},
-		{"Runtime.evaluate", map[string]any{"expression": bridgeJS}},
-	}
-	for _, step := range setup {
-		if _, err := conn.send(ctx, step.method, step.params); err != nil {
-			e.Close()
-			return fmt.Errorf("set up the Spotify player (%s): %w", step.method, err)
-		}
-	}
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+		e.browserExited(cmd)
+	}()
+	// Keep the window parked out of sight (off the taskbar) while the
+	// browser runs: the browser can restyle or recreate it.
+	go e.keepParked(cmd)
 	return nil
 }
 
-// events handles the page's CDP events until the connection closes.
-func (e *Engine) events(conn *cdp) {
-	for ev := range conn.events {
-		switch ev.Method {
-		case "Runtime.bindingCalled":
-			var call struct {
-				Name    string `json:"name"`
-				Payload string `json:"payload"`
-			}
-			if json.Unmarshal(ev.Params, &call) == nil && call.Name == binding {
-				e.message(call.Payload)
-			}
-		case "Page.frameNavigated":
-			var nav struct {
-				Frame struct {
-					ParentID string `json:"parentId"`
-				} `json:"frame"`
-			}
-			if json.Unmarshal(ev.Params, &nav) == nil && nav.Frame.ParentID == "" {
-				e.mu.Lock()
-				if e.readyDone {
-					e.ready, e.readyDone = make(chan struct{}), false
-				}
-				e.state = State{} // a new page plays nothing yet
-				e.mu.Unlock()
-			}
+// writeExtension writes the extension, with the relay's address, where the
+// browser loads it from.
+func (e *Engine) writeExtension(address string) error {
+	if err := os.MkdirAll(e.extension, 0o700); err != nil {
+		return err
+	}
+	err := fs.WalkDir(extensionFiles, "extension", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := extensionFiles.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(e.extension, filepath.Base(path)), data, 0o600)
+	})
+	if err != nil {
+		return err
+	}
+	config, _ := json.Marshal(map[string]string{"url": address})
+	return os.WriteFile(filepath.Join(e.extension, "config.json"), config, 0o600)
+}
+
+var upgrader = websocket.Upgrader{
+	// Only the extension connects: it proves itself with the token in the
+	// path, and its origin is chrome-extension://.
+	CheckOrigin: func(r *http.Request) bool {
+		return strings.HasPrefix(r.Header.Get("Origin"), "chrome-extension://")
+	},
+}
+
+// serveRelay accepts the extension's WebSocket.
+func (e *Engine) serveRelay(w http.ResponseWriter, r *http.Request) {
+	e.mu.Lock()
+	token := e.token
+	e.mu.Unlock()
+	if token == "" || r.URL.Path != "/ryotunes/"+token {
+		http.NotFound(w, r)
+		return
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	conn.SetReadLimit(16 << 20)
+	e.mu.Lock()
+	old := e.page
+	e.page = conn
+	e.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	for {
+		var message struct {
+			Type string `json:"type"`
+			JSON string `json:"json"`
+		}
+		if err := conn.ReadJSON(&message); err != nil {
+			break
+		}
+		switch message.Type {
+		case "hello":
+			e.newPage()
+		case "page":
+			e.message(message.JSON)
 		}
 	}
 	e.mu.Lock()
+	if e.page == conn {
+		e.page = nil
+	}
+	e.mu.Unlock()
+}
+
+// newPage resets what the engine knows when the player page (re)loads.
+func (e *Engine) newPage() {
+	e.mu.Lock()
+	if e.readyDone {
+		e.ready, e.readyDone = make(chan struct{}), false
+	}
 	e.state = State{}
-	if e.conn == conn {
-		e.conn, e.cmd = nil, nil
-		if !e.readyDone {
-			close(e.ready)
-			e.readyDone = true
-		}
+	e.mu.Unlock()
+}
+
+func (e *Engine) browserExited(cmd *exec.Cmd) {
+	e.mu.Lock()
+	if e.cmd != cmd {
+		e.mu.Unlock()
+		return
+	}
+	e.cmd, e.state = nil, State{}
+	if e.server != nil {
+		e.server.Close()
+		e.server = nil
+	}
+	e.token = ""
+	if e.page != nil {
+		e.page.Close()
+		e.page = nil
+	}
+	if !e.readyDone {
+		close(e.ready)
+		e.readyDone = true
+	}
+	for id, ch := range e.pending {
+		ch <- callResult{err: errors.New("Spotify's Web Player closed.")}
+		delete(e.pending, id)
 	}
 	e.mu.Unlock()
 	e.log.Info("Spotify Web Player closed")
@@ -292,6 +375,9 @@ func (e *Engine) message(payload string) {
 		Type  string          `json:"type"`
 		State json.RawMessage `json:"state"`
 		Error string          `json:"error"`
+		ID    int64           `json:"id"`
+		OK    bool            `json:"ok"`
+		Value json.RawMessage `json:"value"`
 	}
 	if json.Unmarshal([]byte(payload), &msg) != nil {
 		return
@@ -304,6 +390,18 @@ func (e *Engine) message(payload string) {
 			e.readyDone = true
 		}
 		e.mu.Unlock()
+	case "result":
+		e.mu.Lock()
+		ch := e.pending[msg.ID]
+		delete(e.pending, msg.ID)
+		e.mu.Unlock()
+		if ch != nil {
+			if msg.OK {
+				ch <- callResult{value: msg.Value}
+			} else {
+				ch <- callResult{err: errors.New(msg.Error)}
+			}
+		}
 	case "state":
 		var state State
 		if json.Unmarshal(msg.State, &state) != nil {
@@ -319,6 +417,20 @@ func (e *Engine) message(payload string) {
 	case "error", "jserror", "drm":
 		e.log.Debug("Spotify Web Player", "type", msg.Type, "error", msg.Error)
 	}
+}
+
+// send writes one message to the extension.
+func (e *Engine) send(message any) error {
+	e.mu.Lock()
+	page := e.page
+	e.mu.Unlock()
+	if page == nil {
+		return errors.New("Spotify's Web Player is not connected.")
+	}
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	_ = page.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return page.WriteJSON(message)
 }
 
 // Call runs one bridge command and returns its JSON value. While the
@@ -338,46 +450,34 @@ func (e *Engine) call(ctx context.Context, method string, args any) (json.RawMes
 	if err := e.Start(ctx); err != nil {
 		return nil, err
 	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	result := make(chan callResult, 1)
 	e.mu.Lock()
-	conn := e.conn
+	e.nextID++
+	id := e.nextID
+	e.pending[id] = result
 	e.mu.Unlock()
-	if conn == nil {
-		return nil, errors.New("Spotify's Web Player is not running.")
+	forget := func() {
+		e.mu.Lock()
+		delete(e.pending, id)
+		e.mu.Unlock()
 	}
-	encoded, err := json.Marshal(args)
-	if err != nil {
+	if err := e.send(map[string]any{"type": "call", "id": id, "method": method, "args": args}); err != nil {
+		forget()
 		return nil, err
 	}
-	expression := "window.Myspoti.call(" + strconv.FormatInt(time.Now().UnixNano(), 10) + "," + strconv.Quote(method) + "," + string(encoded) + ")"
-	raw, err := conn.send(ctx, "Runtime.evaluate", map[string]any{
-		"expression": expression, "awaitPromise": true, "returnByValue": true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var result struct {
-		Result struct {
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
-		ExceptionDetails *struct {
-			Text      string `json:"text"`
-			Exception struct {
-				Description string `json:"description"`
-			} `json:"exception"`
-		} `json:"exceptionDetails"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, err
-	}
-	if ex := result.ExceptionDetails; ex != nil {
-		text := ex.Exception.Description
-		if text == "" {
-			text = ex.Text
+	select {
+	case got := <-result:
+		if got.err != nil {
+			return nil, fmt.Errorf("Spotify's Web Player refused %s: %w", method, got.err)
 		}
-		first, _, _ := strings.Cut(text, "\n")
-		return nil, fmt.Errorf("Spotify's Web Player refused %s: %s", method, first)
+		return got.value, nil
+	case <-ctx.Done():
+		forget()
+		return nil, ctx.Err()
 	}
-	return result.Result.Value, nil
 }
 
 // SignedIn reports whether the page has a Spotify account.
@@ -422,19 +522,13 @@ func (e *Engine) ShowSignIn(ctx context.Context) error {
 		return err
 	}
 	e.mu.Lock()
-	conn, cmd := e.conn, e.cmd
-	already := e.shown
+	cmd = e.cmd
 	e.shown = true
 	e.mu.Unlock()
-	if conn == nil || cmd == nil {
+	if cmd == nil {
 		return errors.New("Spotify's Web Player is not running.")
 	}
-	if already {
-		// Already open: bring it forward without reloading what is typed.
-		showBrowser(cmd.Process.Pid, true)
-		return nil
-	}
-	if _, err := conn.send(ctx, "Page.navigate", map[string]any{"url": loginURL}); err != nil {
+	if err := e.send(map[string]any{"type": "navigate", "url": loginURL}); err != nil {
 		return err
 	}
 	showBrowser(cmd.Process.Pid, true)
@@ -463,46 +557,49 @@ func (e *Engine) hideAfterSignIn(pid int) {
 // keepParked parks the browser's windows until the browser exits, except
 // while the sign-in window is shown.
 func (e *Engine) keepParked(cmd *exec.Cmd) {
+	e.mu.Lock()
+	exited := e.exited
+	e.mu.Unlock()
 	pid := cmd.Process.Pid
 	for tick := 0; ; tick++ {
 		delay := time.Second
 		if tick < 40 {
 			delay = 50 * time.Millisecond // the first two seconds: catch the window as it opens
 		}
-		time.Sleep(delay)
+		select {
+		case <-exited:
+			return
+		case <-time.After(delay):
+		}
 		e.mu.Lock()
-		current, shown := e.cmd, e.shown
+		shown := e.shown
 		e.mu.Unlock()
-		if current != nil && current != cmd {
-			return
-		}
-		if current == nil && tick > 600 {
-			return
-		}
 		if !shown {
 			showBrowser(pid, false)
-		}
-		if cmd.ProcessState != nil {
-			return
 		}
 	}
 }
 
-// Close shuts the browser down.
+// Close shuts the browser down, letting it save the sign-in first.
 func (e *Engine) Close() {
 	e.mu.Lock()
-	conn, cmd := e.conn, e.cmd
-	e.conn, e.cmd = nil, nil
+	cmd, exited := e.cmd, e.exited
 	e.mu.Unlock()
-	if conn != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, _ = conn.send(ctx, "Browser.close", nil)
-		cancel()
-		conn.close()
+	if cmd == nil || cmd.Process == nil {
+		return
 	}
-	if cmd != nil && cmd.Process != nil {
+	closeBrowser(cmd.Process.Pid)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
 	}
+}
+
+func randomToken() string {
+	buf := make([]byte, 24)
+	_, _ = rand.Read(buf)
+	return hex.EncodeToString(buf)
 }
 
 // optInWidevine turns on Brave's Widevine for the player's own profile.
@@ -533,49 +630,4 @@ func optInWidevine(profile string) {
 	}
 	set(filepath.Join(profile, "Local State"))
 	set(filepath.Join(profile, "Default", "Preferences"))
-}
-
-func waitPort(ctx context.Context, portFile string) (string, error) {
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(portFile); err == nil {
-			first, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
-			if _, err := strconv.Atoi(strings.TrimSpace(first)); err == nil {
-				return strings.TrimSpace(first), nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return "", errors.New("the browser for Spotify did not start")
-}
-
-func waitPageTarget(ctx context.Context, port string) (string, error) {
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/json", nil)
-		if resp, err := http.DefaultClient.Do(request); err == nil {
-			var targets []struct {
-				Type                 string `json:"type"`
-				URL                  string `json:"url"`
-				WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-			}
-			_ = json.NewDecoder(resp.Body).Decode(&targets)
-			resp.Body.Close()
-			for _, target := range targets {
-				if target.Type == "page" && strings.Contains(target.URL, "spotify.com") && target.WebSocketDebuggerURL != "" {
-					return target.WebSocketDebuggerURL, nil
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
-	return "", errors.New("the Spotify page did not open")
 }

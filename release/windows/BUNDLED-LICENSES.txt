@@ -19,7 +19,7 @@ third_party/go-librespot (compiled into ryotunesd.exe)
   CGO. Ryotunes does not use librespot to play audio, so those decoders are not
   used. Source and changes: third_party/go-librespot in this repository.
 
-internal/webplayer/player-bridge.js (compiled into ryotunesd.exe)
+internal/webplayer/extension/player-bridge.js (compiled into ryotunesd.exe)
   Myspoti's Web Player bridge, copied unchanged from Myspoti
   (base/api-spotify/src/main/resources/bridge/player-bridge.js).
   Licence: GPL-3.0-or-later. Copyright Myspoti contributors.

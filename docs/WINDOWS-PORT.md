@@ -55,15 +55,20 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 Spotify no longer gives librespot clients the keys to decrypt its audio
 ("failed retrieving aes key with code 1"), and Ryotunes does not circumvent
 Spotify's DRM. On Windows, Spotify tracks play in **Spotify's own Web
-Player** instead, the way Myspoti's desktop host does:
+Player** instead, the way Myspoti does:
 
 - `internal/webplayer` starts Brave (else Microsoft Edge or Chrome) with its
-  own profile in `%LOCALAPPDATA%\Ryotunes\spotify-player`, opens open.spotify.com,
-  injects Myspoti's `player-bridge.js` and drives the page's player over the
-  Chrome DevTools Protocol. The browser's licensed Widevine module decrypts the
-  audio (Ryotunes opts its own Brave profile in to Widevine, which Brave keeps
-  off by default),
-  and plays count for artists, history and Wrapped as in a browser.
+  own profile in `%LOCALAPPDATA%\Ryotunes\spotify-player` and opens
+  open.spotify.com. The browser's licensed Widevine module decrypts the audio
+  (Ryotunes opts its own Brave profile in to Widevine, which Brave keeps off
+  by default), and plays count as in a browser.
+- The browser is not automated. Spotify refuses Widevine licences (HTTP 403)
+  to a page that reports automation (`navigator.webdriver`, set by remote
+  debugging) and skips to other songs. So, as Myspoti's Android host injects
+  its bridge into a WebView, Ryotunes loads a small extension of its own
+  (`internal/webplayer/extension`) into the player profile: it injects
+  Myspoti's `player-bridge.js` into the page and relays its messages over a
+  local WebSocket that needs a per-launch token.
 - The window stays shown but parked beyond the edge of every monitor as a tool
   window (off the taskbar and Alt+Tab): Chromium does not load media in a
   hidden window.

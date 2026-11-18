@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -178,4 +179,34 @@ func parked(hwnd, ex uintptr) bool {
 	var rect struct{ Left, Top, Right, Bottom int32 }
 	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
 	return int(rect.Right) <= systemMetric(smXVirtualScreen)
+}
+
+// closeBrowser asks the browser's windows to close, as clicking × would, so
+// it saves its profile (the Spotify sign-in) before exiting.
+func closeBrowser(pid int) {
+	kill := exec.Command("taskkill", "/PID", strconv.Itoa(pid))
+	kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	_ = kill.Run()
+}
+
+// closeLeftovers ends browsers still running on the player's profile (a
+// previous Ryotunes that did not close it). Chromium allows one browser per
+// profile: a new launch would only hand its window to the old one, which
+// runs without the player extension.
+func closeLeftovers(profile string) {
+	script := "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('--user-data-dir=" +
+		strings.ReplaceAll(profile, "'", "''") + "') } | ForEach-Object { $_.ProcessId }"
+	query := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	query.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	out, err := query.Output()
+	if err != nil {
+		return
+	}
+	for _, field := range strings.Fields(string(out)) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 0 {
+			kill := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+			kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+			_ = kill.Run()
+		}
+	}
 }

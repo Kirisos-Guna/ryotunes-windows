@@ -18,3 +18,7 @@ func detachBrowser(*exec.Cmd) {}
 func showBrowser(int, bool) bool { return false }
 
 func browserLaunchArgs() []string { return nil }
+
+func closeBrowser(int) {}
+
+func closeLeftovers(string) {}
