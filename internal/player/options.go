@@ -3,6 +3,7 @@ package player
 import (
 	stderrors "errors"
 	"fmt"
+	"runtime"
 	"time"
 
 	mpv "github.com/gen2brain/go-mpv"
@@ -33,7 +34,9 @@ func playerOptions(cacheDir string, lowResource bool) []mpvOption {
 		{name: "vid", value: "no"},
 		{name: "video", value: "no"},
 		{name: "audio-display", value: "no"},
-		{name: "ao", value: "pipewire,pulse,alsa,null"},
+		// Windows: WASAPI. The Linux outputs listed alone left mpv on "null"
+		// there: the clock ran but nothing was heard.
+		{name: "ao", value: audioOutputs()},
 		{name: "audio-client-name", value: "Ryotunes"},
 		{name: "ytdl", value: "no"},
 		{name: "force-window", value: "no"},
@@ -53,6 +56,14 @@ func playerOptions(cacheDir string, lowResource bool) []mpvOption {
 		{name: "input-default-bindings", value: "no"},
 		{name: "input-vo-keyboard", value: "no"},
 	}
+}
+
+// audioOutputs is mpv's audio output list, in order of preference.
+func audioOutputs() string {
+	if runtime.GOOS == "windows" {
+		return "wasapi,null"
+	}
+	return "pipewire,pulse,alsa,null"
 }
 
 func observedProperties() []observedProperty {

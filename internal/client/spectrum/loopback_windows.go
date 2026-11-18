@@ -125,6 +125,11 @@ func startLoopback(onSamples func(stereo []float32, rate int)) (*runningCapture,
 }
 
 func runLoopback(onSamples func([]float32, int), stop <-chan struct{}, ready chan<- error) (err error) {
+	return runLoopbackOn(nil, onSamples, stop, ready)
+}
+
+// runLoopbackOn captures pick's device, or the default output when pick is nil.
+func runLoopbackOn(pick func(enumerator unsafe.Pointer) (unsafe.Pointer, error), onSamples func([]float32, int), stop <-chan struct{}, ready chan<- error) (err error) {
 	fail := func(e error) error {
 		select {
 		case ready <- e:
@@ -147,7 +152,13 @@ func runLoopback(onSamples func([]float32, int), stop <-chan struct{}, ready cha
 	defer comCall(enumerator, vtRelease)
 
 	var device unsafe.Pointer
-	if e := hresult("GetDefaultAudioEndpoint", comCall(enumerator, vtGetDefaultEndpoint, eRender, eConsole, uintptr(unsafe.Pointer(&device)))); e != nil {
+	if pick != nil {
+		picked, e := pick(enumerator)
+		if e != nil {
+			return fail(e)
+		}
+		device = picked
+	} else if e := hresult("GetDefaultAudioEndpoint", comCall(enumerator, vtGetDefaultEndpoint, eRender, eConsole, uintptr(unsafe.Pointer(&device)))); e != nil {
 		return fail(e)
 	}
 	defer comCall(device, vtRelease)

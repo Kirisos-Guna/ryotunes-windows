@@ -349,6 +349,11 @@ func (p *Player) webTicker() {
 	// the player's cadence, as mpv's are.
 	const check = 100 * time.Millisecond
 	var lastEmit time.Time
+	// The page's position can stall right at the end (Spotify reports
+	// buffering while it prepares the next song): a song within a few
+	// seconds of its end whose position has not moved for 2 s is over.
+	var stalledAt float64
+	var stalledSince time.Time
 	for {
 		select {
 		case <-p.closed:
@@ -376,9 +381,18 @@ func (p *Player) webTicker() {
 			p.emit(Event{Kind: Position, Position: position})
 		}
 		// End the song ourselves just before Spotify does, so it never
-		// autoplays something else or rewinds to 0:00 first.
-		if state.DurationMs > 0 && position*1000 >= state.DurationMs-350 && !state.IsBuffering {
+		// autoplays something else or rewinds to 0:00 first. Buffering at
+		// the very end is Spotify preparing the next song: still the end.
+		if state.DurationMs > 0 && position*1000 >= state.DurationMs-350 {
 			p.webEnd()
+			continue
+		}
+		if state.DurationMs > 0 && position*1000 >= state.DurationMs-4000 {
+			if position != stalledAt {
+				stalledAt, stalledSince = position, now
+			} else if now.Sub(stalledSince) >= 2*time.Second {
+				p.webEnd()
+			}
 		}
 	}
 }
