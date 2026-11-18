@@ -47,7 +47,7 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 | Browser cookie import | Linux profile paths, `peanuts`/keyring AES-CBC | Windows profile paths, DPAPI-unwrapped AES-GCM `v10` keys, default browser from the registry |
 | Spotify decoders | go-librespot FLAC/MP3/Vorbis via CGO | `third_party/go-librespot` is vendored with `!cgo` stubs; Ryotunes plays Spotify audio through libmpv, so they are never used |
 | Self update | pacman / xbps / dnf via pkexec | Downloads this repository's `Ryotunes-Setup-<version>-x64.exe`, verifies its SHA-256 and runs it silently (`internal/update/windows.go`) |
-| Window maximize / fullscreen | Gio defaults | `third_party/gioui` is vendored with Windows fixes: maximize fills exactly the work area (no ghost caption buttons when the work area is inset), and fullscreen covers the whole monitor |
+| Window maximize / fullscreen | Gio defaults | `third_party/gioui` is vendored with Windows fixes: maximize fills exactly the work area (no ghost caption buttons when the work area is inset), fullscreen covers the whole monitor, and the window opens centered inside the work area (a saved size that would not fit opens at 80% of it, `internal/platform/window_windows.go`) |
 
 ## Not available on Windows
 

@@ -21,6 +21,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/client/ui/look"
 	"github.com/ryoku-dev/ryotunes/internal/client/ui/sheet"
 	"github.com/ryoku-dev/ryotunes/internal/client/ui/widgets"
+	"github.com/ryoku-dev/ryotunes/internal/platform"
 )
 
 type postQueue struct {
@@ -198,6 +199,7 @@ func (s *uiShell) newWindow(mini bool) (*gioapp.Window, windowModePlan) {
 		width, height = s.mainWidth, s.mainHeight
 		s.mainWidth, s.mainHeight = 0, 0
 	}
+	width, height = platform.FitWindow(width, height)
 	plan := mainWindowMode(width, height, preferences.OpenFloatingOn())
 	s.runtime.store.SetMainWindowOpenedFloating(plan.persistSize)
 	options := []gioapp.Option{

@@ -57,6 +57,9 @@ type window struct {
 	// fullscreen records that Configure made the window cover its monitor.
 	// Ryotunes patch: upstream reused the maximized state for fullscreen.
 	fullscreen bool
+	// placed records that the window has been positioned once (Ryotunes
+	// patch), so later Configure calls keep the user's position.
+	placed bool
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -947,6 +950,27 @@ func (w *window) Configure(options []Option) {
 			// Enable drop shadows when we draw decorations.
 			windows.DwmExtendFrameIntoClientArea(w.hwnd, windows.Margins{-1, -1, -1, -1})
 		}
+		// Ryotunes patch: Windows places a new window at a cascading default
+		// position, so a large remembered size ran off the bottom-right of
+		// the screen. Keep the window inside the work area, and center it the
+		// first time it is shown.
+		const monitorDefaultToNearest = 2
+		if mi, ok := windows.GetMonitorInfo(wr, monitorDefaultToNearest); ok {
+			wa := mi.WorkArea
+			areaW, areaH := wa.Right-wa.Left, wa.Bottom-wa.Top
+			// Creation configures more than once (default size, then the
+			// app's size), so center whenever the requested size changes.
+			resized := width != wr.Right-wr.Left || height != wr.Bottom-wr.Top
+			center := !w.placed || resized
+			width, height = min(width, areaW), min(height, areaH)
+			if center {
+				x, y = wa.Left+(areaW-width)/2, wa.Top+(areaH-height)/2
+			} else {
+				x = max(wa.Left, min(x, wa.Right-width))
+				y = max(wa.Top, min(y, wa.Bottom-height))
+			}
+		}
+		w.placed = true
 
 	case Fullscreen:
 		// Ryotunes patch. Upstream maximized a captionless window and called
