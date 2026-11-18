@@ -126,6 +126,89 @@ func (p *Player) leaveWeb() {
 	go p.webCall("player.pause", nil)
 }
 
+// webOnTrack reports whether the page is on our track: false after the
+// browser restarted or the page reloaded, when it plays nothing.
+func (p *Player) webOnTrack() bool {
+	if !p.web.engine.Running() {
+		return false
+	}
+	state := p.web.engine.State()
+	p.web.mu.Lock()
+	defer p.web.mu.Unlock()
+	return state.Track != nil && state.Track.URI == p.web.uri
+}
+
+// webReload plays our track again from the current position, for a page
+// that lost it, resuming or staying paused.
+func (p *Player) webReload(resume bool) error {
+	p.web.mu.Lock()
+	uri := p.web.uri
+	p.web.seen, p.web.ended = false, false
+	volume := p.web.volume
+	p.web.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	engine := p.web.engine
+	signedIn, err := engine.SignedIn(ctx)
+	if err != nil {
+		return err
+	}
+	if !signedIn {
+		if err := engine.ShowSignIn(ctx); err != nil {
+			return err
+		}
+		return webplayer.ErrSignInRequired
+	}
+	_, _ = engine.Call(ctx, "volume.set", map[string]any{"level": volume})
+	args := map[string]any{"contextUri": uri}
+	if position := p.Position(); position > 0 {
+		args["positionMs"] = int64(position * 1000)
+	}
+	if _, err := engine.Call(ctx, "player.play", args); err != nil {
+		return err
+	}
+	if !resume {
+		_, err = engine.Call(ctx, "player.pause", nil)
+	}
+	return err
+}
+
+// webResume resumes our track, reloading it when the page lost it.
+func (p *Player) webResume() error {
+	if !p.webOnTrack() {
+		return p.webReload(true)
+	}
+	return p.webCall("player.resume", nil)
+}
+
+// webPause pauses; a page without our track plays nothing to pause.
+func (p *Player) webPause() error {
+	if !p.webOnTrack() {
+		if !p.paused.Swap(true) {
+			p.emit(Event{Kind: PauseChanged, Paused: true})
+		}
+		return nil
+	}
+	return p.webCall("player.pause", nil)
+}
+
+// webToggle follows the page's own pause state, not a possibly stale one.
+func (p *Player) webToggle() error {
+	if !p.webOnTrack() || p.web.engine.State().IsPaused {
+		return p.webResume()
+	}
+	return p.webPause()
+}
+
+// webSeek moves within our track, reloading it there when the page lost it.
+func (p *Player) webSeek(pos float64) error {
+	p.position.Store(math.Float64bits(pos))
+	if !p.webOnTrack() {
+		return p.webReload(!p.Paused())
+	}
+	return p.webCall("player.seek", map[string]any{"positionMs": int64(pos * 1000)})
+}
+
 // webCall runs a bridge command for a transport control.
 func (p *Player) webCall(method string, args any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -154,8 +237,14 @@ func (p *Player) onWebState(state webplayer.State) {
 	ended := false
 	if p.web.seen && !p.web.ended {
 		atEnd := ours && state.IsPaused && state.DurationMs > 0 && state.Position(time.Now())*1000 >= state.DurationMs-1500
-		if !ours || atEnd {
+		// The page moved on from our song: its end only if the song was
+		// almost over. Otherwise the page reloaded or was used elsewhere;
+		// the next transport call plays our song again (webReload).
+		movedOn := !ours && p.Duration() > 0 && p.Position() >= p.Duration()-15
+		if atEnd || movedOn {
 			p.web.ended, ended = true, true
+		} else if !ours {
+			p.web.seen = false
 		}
 	}
 	seen := p.web.seen

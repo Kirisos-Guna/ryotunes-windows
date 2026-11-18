@@ -178,7 +178,7 @@ func (p *Player) Prefetch(s model.Stream) {
 // Play resumes playback.
 func (p *Player) Play() error {
 	if p.webActive() {
-		return p.webCall("player.resume", nil)
+		return p.webResume()
 	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return p.setPropertyAsync(m, "pause", mpv.FormatFlag, false)
@@ -188,7 +188,7 @@ func (p *Player) Play() error {
 // Pause pauses playback.
 func (p *Player) Pause() error {
 	if p.webActive() {
-		return p.webCall("player.pause", nil)
+		return p.webPause()
 	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return p.setPropertyAsync(m, "pause", mpv.FormatFlag, true)
@@ -198,10 +198,7 @@ func (p *Player) Pause() error {
 // TogglePause toggles mpv's pause property.
 func (p *Player) TogglePause() error {
 	if p.webActive() {
-		if p.Paused() {
-			return p.webCall("player.resume", nil)
-		}
-		return p.webCall("player.pause", nil)
+		return p.webToggle()
 	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return m.CommandAsync(p.nextAsyncID(), []string{"cycle", "pause"})
@@ -230,8 +227,7 @@ func (p *Player) Seek(pos float64) error {
 		return fmt.Errorf("Seek position must be a non-negative finite number.")
 	}
 	if p.webActive() {
-		p.position.Store(math.Float64bits(pos))
-		return p.webCall("player.seek", map[string]any{"positionMs": int64(pos * 1000)})
+		return p.webSeek(pos)
 	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return m.CommandAsync(p.nextAsyncID(), []string{"seek", formatFloat(pos), "absolute"})

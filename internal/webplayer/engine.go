@@ -122,6 +122,13 @@ func (e *Engine) OnState(fn func(State)) {
 	e.mu.Unlock()
 }
 
+// Running reports whether the browser is connected.
+func (e *Engine) Running() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.conn != nil
+}
+
 // State returns the most recent state.
 func (e *Engine) State() State {
 	e.mu.Lock()
@@ -187,18 +194,9 @@ func (e *Engine) launch(ctx context.Context) error {
 	go func() { _ = cmd.Wait() }()
 	stop := func() { _ = cmd.Process.Kill() }
 
-	// Park the window out of sight (off the taskbar) as soon as it exists.
-	go func() {
-		for i := 0; i < 100; i++ {
-			e.mu.Lock()
-			shown := e.shown
-			e.mu.Unlock()
-			if shown || showBrowser(cmd.Process.Pid, false) {
-				return
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	}()
+	// Keep the window parked out of sight (off the taskbar) while the
+	// browser runs: Edge can restyle or recreate it, so check every second.
+	go e.keepParked(cmd)
 
 	port, err := waitPort(ctx, portFile)
 	if err != nil {
@@ -263,11 +261,13 @@ func (e *Engine) events(conn *cdp) {
 				if e.readyDone {
 					e.ready, e.readyDone = make(chan struct{}), false
 				}
+				e.state = State{} // a new page plays nothing yet
 				e.mu.Unlock()
 			}
 		}
 	}
 	e.mu.Lock()
+	e.state = State{}
 	if e.conn == conn {
 		e.conn, e.cmd = nil, nil
 		if !e.readyDone {
@@ -410,6 +410,34 @@ func (e *Engine) hideAfterSignIn(pid int) {
 			e.shown = false
 			e.mu.Unlock()
 			e.log.Info("Spotify Web Player signed in")
+			return
+		}
+	}
+}
+
+// keepParked parks the browser's windows until the browser exits, except
+// while the sign-in window is shown.
+func (e *Engine) keepParked(cmd *exec.Cmd) {
+	pid := cmd.Process.Pid
+	for tick := 0; ; tick++ {
+		delay := time.Second
+		if tick < 40 {
+			delay = 50 * time.Millisecond // the first two seconds: catch the window as it opens
+		}
+		time.Sleep(delay)
+		e.mu.Lock()
+		current, shown := e.cmd, e.shown
+		e.mu.Unlock()
+		if current != nil && current != cmd {
+			return
+		}
+		if current == nil && tick > 600 {
+			return
+		}
+		if !shown {
+			showBrowser(pid, false)
+		}
+		if cmd.ProcessState != nil {
 			return
 		}
 	}

@@ -59,7 +59,9 @@ var (
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 	procShowWindow               = user32.NewProc("ShowWindow")
 	procSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
-	procGetWindowTextLength      = user32.NewProc("GetWindowTextLengthW")
+	procGetClassName             = user32.NewProc("GetClassNameW")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procGetWindowRect            = user32.NewProc("GetWindowRect")
 	procGetWindowLongPtr         = user32.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtr         = user32.NewProc("SetWindowLongPtrW")
 	procSetWindowPos             = user32.NewProc("SetWindowPos")
@@ -101,17 +103,25 @@ func browserLaunchArgs() []string {
 	return []string{"--window-position=" + strconv.Itoa(offscreenX()) + ",0"}
 }
 
-// browserWindows lists the top-level windows with a title owned by pid.
+// browserWindows lists pid's browser windows (class Chrome_WidgetWin_1),
+// not its helper windows such as "Default IME".
 func browserWindows(pid int) []uintptr {
 	var found []uintptr
 	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		var owner uint32
 		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&owner)))
-		if int(owner) == pid {
-			if length, _, _ := procGetWindowTextLength.Call(hwnd); length > 0 {
-				found = append(found, hwnd)
-			}
+		if int(owner) != pid {
+			return 1
 		}
+		class := make([]uint16, 64)
+		n, _, _ := procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&class[0])), uintptr(len(class)))
+		if windows.UTF16ToString(class[:n]) != "Chrome_WidgetWin_1" {
+			return 1
+		}
+		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+			return 1
+		}
+		found = append(found, hwnd)
 		return 1
 	})
 	procEnumWindows.Call(callback, 0)
@@ -131,6 +141,9 @@ func showBrowser(pid int, show bool) bool {
 	found := browserWindows(pid)
 	for _, hwnd := range found {
 		ex, _, _ := procGetWindowLongPtr.Call(hwnd, gwlExStyle)
+		if !show && parked(hwnd, ex) {
+			continue // already out of sight: touching it would only flicker
+		}
 		procShowWindow.Call(hwnd, swHide) // the taskbar notices a style change on a re-show
 		if show {
 			ex = (ex &^ (wsExToolWindow | wsExNoActivate)) | wsExAppWindow
@@ -141,6 +154,10 @@ func showBrowser(pid int, show bool) bool {
 			procShowWindow.Call(hwnd, swShowNormal)
 			procSetForegroundWindow.Call(hwnd)
 		} else {
+			if parked(hwnd, ex) {
+				procShowWindow.Call(hwnd, swShowNoActivate)
+				continue
+			}
 			ex = (ex | wsExToolWindow | wsExNoActivate) &^ wsExAppWindow
 			procSetWindowLongPtr.Call(hwnd, gwlExStyle, ex)
 			setWindowPos(hwnd, offscreenX(), 0, windowWidth, windowHeight, swpNoZOrder|swpNoActivate)
@@ -148,4 +165,14 @@ func showBrowser(pid int, show bool) bool {
 		}
 	}
 	return len(found) > 0
+}
+
+// parked reports a window already off the taskbar and beyond the monitors.
+func parked(hwnd, ex uintptr) bool {
+	if ex&wsExToolWindow == 0 || ex&wsExAppWindow != 0 {
+		return false
+	}
+	var rect struct{ Left, Top, Right, Bottom int32 }
+	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
+	return int(rect.Right) <= systemMetric(smXVirtualScreen)
 }
