@@ -1,0 +1,345 @@
+package look
+
+import (
+	"image"
+	"image/color"
+	"math"
+	"time"
+
+	"gioui.org/io/event"
+	"gioui.org/io/key"
+	"gioui.org/io/pointer"
+	"gioui.org/io/semantic"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
+
+	"github.com/ryoku-dev/ryoku/docs/lithic/library/go/anim"
+	"github.com/ryoku-dev/ryoku/docs/lithic/library/go/kit"
+	"github.com/ryoku-dev/ryoku/docs/lithic/library/go/palette"
+)
+
+const wheelSettle = 300 * time.Millisecond
+
+// ScrubberStyle configures seek and volume scrubbers.
+type ScrubberStyle struct {
+	Fill         color.NRGBA
+	AlwaysHandle bool
+	Bubble       func(f float32) string
+	WheelStep    float32
+	Disabled     bool
+	Wave         bool
+	Live         bool
+	Thickness    unit.Dp
+	Amplitude    unit.Dp
+	Wavelength   unit.Dp
+}
+
+// Scrubber is a normalized pointer-grabbing seek or volume control.
+type Scrubber struct {
+	tag struct{}
+
+	hovered bool
+	pointer image.Point
+	hover   anim.Tween
+	wave    WaveState
+	hoverOn bool
+	ready   bool
+
+	active    bool
+	pointerID pointer.ID
+	preview   float32
+
+	committed      float32
+	committedReady bool
+
+	wheelPending  bool
+	wheelValue    float32
+	wheelFraction float32
+	wheelDeadline time.Time
+
+	shown float32
+}
+
+func clampFraction(value float32) float32 {
+	return min(max(value, 0), 1)
+}
+
+func scrubberFraction(x float32, width int) float32 {
+	if width <= 0 {
+		return 0
+	}
+	return clampFraction(x / float32(width))
+}
+
+// scrubberTrackInk is fg a quarter of the way over the window's paper, so the
+// track reads on the one-paper frame in every design (1.5:1 or more).
+func scrubberTrackInk(roles palette.Roles) color.NRGBA {
+	return palette.Mix(roles.Ground, roles.Fg, .25)
+}
+
+func scrubberWheel(value, delta, fraction, step, notch float32) (next, remainder float32) {
+	if step <= 0 || notch <= 0 {
+		return clampFraction(value), fraction
+	}
+	fraction += delta / notch
+	whole := int(fraction)
+	fraction -= float32(whole)
+	return clampFraction(value - float32(whole)*step), fraction
+}
+
+func (s *Scrubber) commit(gtx layout.Context, value float32) {
+	s.committed = clampFraction(value)
+	s.committedReady = true
+	gtx.Execute(op.InvalidateCmd{})
+}
+
+func (s *Scrubber) settleWheel(gtx layout.Context) {
+	if !s.wheelPending || gtx.Now.Before(s.wheelDeadline) {
+		return
+	}
+	s.wheelPending = false
+	s.wheelFraction = 0
+	s.commit(gtx, s.wheelValue)
+}
+
+func (s *Scrubber) updatePointer(gtx layout.Context, value float32, width int, style ScrubberStyle) {
+	s.settleWheel(gtx)
+	filter := pointer.Filter{
+		Target: &s.tag,
+		Kinds: pointer.Enter | pointer.Leave | pointer.Move | pointer.Press |
+			pointer.Drag | pointer.Release | pointer.Cancel,
+	}
+	if !style.Disabled && style.WheelStep > 0 {
+		filter.Kinds |= pointer.Scroll
+		filter.ScrollX = pointer.ScrollRange{Min: -scrollRangeLimit, Max: scrollRangeLimit}
+		filter.ScrollY = pointer.ScrollRange{Min: -scrollRangeLimit, Max: scrollRangeLimit}
+	}
+	for {
+		raw, ok := gtx.Event(filter)
+		if !ok {
+			break
+		}
+		e, ok := raw.(pointer.Event)
+		if !ok {
+			continue
+		}
+		if e.Kind != pointer.Cancel {
+			// a cancel carries no position (it reads 0, 0): keeping it put
+			// the time bubble at the track's start
+			s.pointer = image.Pt(int(math.Round(float64(e.Position.X))), int(math.Round(float64(e.Position.Y))))
+		}
+		switch e.Kind {
+		case pointer.Enter:
+			s.hovered = true
+		case pointer.Leave:
+			s.hovered = false
+		case pointer.Press:
+			if style.Disabled || e.Buttons&pointer.ButtonPrimary == 0 {
+				continue
+			}
+			s.active = true
+			s.pointerID = e.PointerID
+			s.preview = scrubberFraction(e.Position.X, width)
+			s.wheelPending = false
+			s.wheelFraction = 0
+			gtx.Execute(pointer.GrabCmd{Tag: &s.tag, ID: e.PointerID})
+			gtx.Execute(key.FocusCmd{Tag: &s.tag})
+		case pointer.Drag:
+			if s.active && e.PointerID == s.pointerID {
+				s.preview = scrubberFraction(e.Position.X, width)
+			}
+		case pointer.Release:
+			if s.active && e.PointerID == s.pointerID {
+				s.preview = scrubberFraction(e.Position.X, width)
+				s.active = false
+				s.commit(gtx, s.preview)
+			}
+		case pointer.Cancel:
+			// the pointer went to another handler (a grab elsewhere, the window
+			// losing it): no Leave follows, so the hover ends here
+			s.hovered = false
+			if s.active && e.PointerID == s.pointerID {
+				s.active = false
+			}
+		case pointer.Scroll:
+			if style.Disabled || style.WheelStep <= 0 {
+				continue
+			}
+			delta := e.Scroll.Y
+			if delta == 0 {
+				delta = e.Scroll.X
+			}
+			if delta == 0 {
+				continue
+			}
+			if !s.wheelPending {
+				s.wheelValue = clampFraction(value)
+				s.wheelFraction = 0
+			}
+			notch := float32(150)
+			if scrollOnX11 {
+				notch = x11Notch
+			}
+			s.wheelValue, s.wheelFraction = scrubberWheel(s.wheelValue, delta, s.wheelFraction, style.WheelStep, notch)
+			s.wheelPending = true
+			s.wheelDeadline = gtx.Now.Add(wheelSettle)
+			gtx.Execute(op.InvalidateCmd{})
+			gtx.Execute(op.InvalidateCmd{At: s.wheelDeadline})
+		}
+	}
+}
+
+func (s *Scrubber) updateKeys(gtx layout.Context, value float32, style ScrubberStyle) {
+	step := style.WheelStep
+	if step <= 0 {
+		step = .01
+	}
+	for {
+		// the focus filter makes the scrubber focusable: without it Gio drops
+		// the press's focus request and the arrows never arrive
+		raw, ok := gtx.Event(
+			key.FocusFilter{Target: &s.tag},
+			key.Filter{Focus: &s.tag, Name: key.NameLeftArrow},
+			key.Filter{Focus: &s.tag, Name: key.NameRightArrow},
+		)
+		if !ok {
+			break
+		}
+		e, ok := raw.(key.Event)
+		if !ok || e.State != key.Press || style.Disabled {
+			continue
+		}
+		next := value
+		if e.Name == key.NameLeftArrow {
+			next -= step
+		} else {
+			next += step
+		}
+		s.commit(gtx, next)
+		value = s.committed
+	}
+}
+
+func (s *Scrubber) hoverValue(gtx layout.Context, th *Theme) float32 {
+	on := s.hovered || s.active
+	duration := th.Motion.HoverOut
+	if on {
+		duration = th.Motion.HoverIn
+	}
+	s.hover.Duration = duration
+	s.hover.Ease = anim.EaseChisel
+	if !s.ready {
+		s.hover.Set(gtx, 0)
+		s.ready = true
+	}
+	if on != s.hoverOn {
+		s.hoverOn = on
+		if on {
+			s.hover.Set(gtx, 1)
+		} else {
+			s.hover.Set(gtx, 0)
+		}
+	}
+	return s.hover.Value(gtx)
+}
+
+// Layout draws and operates the scrubber.
+func (s *Scrubber) Layout(gtx layout.Context, th *Theme, value float32, style ScrubberStyle) layout.Dimensions {
+	width := gtx.Constraints.Max.X
+	if width <= 0 {
+		width = gtx.Dp(160)
+	}
+	size := gtx.Constraints.Constrain(image.Pt(width, gtx.Dp(24)))
+	width = size.X
+	s.updatePointer(gtx, value, width, style)
+	s.updateKeys(gtx, value, style)
+
+	display := clampFraction(value)
+	if s.committedReady {
+		// a click, key or settled wheel committed this frame: show it now,
+		// not the caller's value until it has read the commit
+		display = s.committed
+	}
+	if s.wheelPending {
+		display = s.wheelValue
+	}
+	if s.active {
+		display = s.preview
+	}
+	s.shown = display
+	hover := s.hoverValue(gtx, th)
+	thickness := style.Thickness
+	if thickness <= 0 {
+		thickness = 2
+	}
+	if style.AlwaysHandle {
+		thickness += unit.Dp(hover)
+	}
+	trackHeight := max(1, gtx.Dp(thickness))
+	trackY := (size.Y - trackHeight) / 2
+	trackInk := scrubberTrackInk(th.R)
+	fillInk := style.Fill
+	handleInk := th.R.Fg
+	if style.Disabled {
+		trackInk, fillInk, handleInk = th.R.Fg3, th.R.Fg3, th.R.Fg3
+	}
+
+	area := clip.Rect(image.Rectangle{Max: size}).Push(gtx.Ops)
+	if style.Wave {
+		DrawWave(gtx, th, &s.wave, image.Rectangle{Max: size}, display, fillInk, trackInk, thickness, style.Amplitude, style.Wavelength, style.Live && !s.active && !style.Disabled)
+	} else {
+		s.wave.reset()
+		track := image.Rect(0, trackY, width, trackY+trackHeight)
+		paint.FillShape(gtx.Ops, trackInk, clip.Rect(track).Op())
+		filled := int(math.Round(float64(display * float32(width))))
+		if filled > 0 {
+			paint.FillShape(gtx.Ops, fillInk, clip.Rect(image.Rect(0, trackY, min(filled, width), trackY+trackHeight)).Op())
+		}
+	}
+	handleAlpha := hover
+	if style.AlwaysHandle {
+		handleAlpha = 1
+	}
+	handleWidth, handleHeight, handleCut := max(1, gtx.Dp(3)), max(1, gtx.Dp(14)), 0
+	if style.AlwaysHandle {
+		handleWidth, handleHeight, handleCut = max(1, gtx.Dp(10)), max(1, gtx.Dp(10)), gtx.Dp(3)
+	}
+	handleX := int(math.Round(float64(display*float32(width)))) - handleWidth/2
+	if handleAlpha > 0 {
+		handle := image.Rect(handleX, (size.Y-handleHeight)/2, handleX+handleWidth, (size.Y+handleHeight)/2)
+		kit.Fill(gtx, th.Theme, handle, handleCut, palette.WithAlpha(handleInk, handleAlpha))
+	}
+	semantic.Editor.Add(gtx.Ops)
+	semantic.EnabledOp(!style.Disabled).Add(gtx.Ops)
+	event.Op(gtx.Ops, &s.tag)
+	area.Pop()
+
+	if style.Bubble != nil && !style.Disabled && handleAlpha > 0 && (s.hovered || s.active) {
+		at := s.pointer
+		bubbleValue := scrubberFraction(float32(at.X), width)
+		if s.active {
+			at = image.Pt(handleX+handleWidth/2, size.Y/2)
+			bubbleValue = s.preview
+		}
+		Bubble(gtx, th, at, style.Bubble(bubbleValue), handleAlpha)
+	}
+	return layout.Dimensions{Size: size}
+}
+
+// Dragging reports the live preview while the pointer is held.
+func (s *Scrubber) Dragging() (f float32, ok bool) {
+	return s.preview, s.active
+}
+
+// Shown is the value the scrubber drew at its last Layout.
+func (s *Scrubber) Shown() float32 { return s.shown }
+
+// Committed reports and clears the latest release, click, key, or wheel value.
+func (s *Scrubber) Committed() (f float32, ok bool) {
+	value, ready := s.committed, s.committedReady
+	s.committedReady = false
+	return value, ready
+}

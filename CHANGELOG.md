@@ -1,0 +1,417 @@
+# Changelog
+
+## Unreleased
+
+## v2.0.0 - 2026-11-16
+
+- Ryotunes now uses the Lithic look in one native main window.
+- Tidal and local music now sit beside YouTube Music, Spotify, SoundCloud and internet radio in the same app.
+- Material role-set palette files replace the 1.x skin system.
+- The mini player keeps playback controls available in a separate compact window.
+- The existing library, device playlists, settings and provider sign-ins carry over from 1.x.
+- Update in Settings, About follows Ryotunes 2 releases, including the prereleases Ryotunes 2 ships as while 1.x stays the stable release, and never offers a version older than the one you run.
+- Settings folds in the sidebar like Playlists: a chevron opens and closes its sections, and your playlists stay in view while Settings is open.
+- Hearts show your YouTube Music likes everywhere. Songs you already liked show a filled heart in the queue, the player, now playing, search, albums and Home, not only in Liked music, and liking a song keeps its heart filled instead of emptying it again a moment later. A like or unlike made anywhere in Ryotunes shows on every heart for that song at once. Likes made on another device show up within half an hour.
+- Lyrics belong to the song you're playing. A video whose title holds the artist ("PIXY - LEGACY") on someone else's channel, or carries tags like Official Video, Lyrics or ft., now finds the right song, and lyrics for a different song of about the same length are no longer shown. Slowed, sped up, nightcore, reverb, 8D and daycore uploads get the original song's lyrics stretched to their speed, or shown without timing when the speed can't be worked out. Lyrics saved by earlier versions are looked up again once.
+- Discord shows the song you are playing first, in your member list entry and profile, instead of "Ryotunes", and the small badge on the cover is the current Ryoku mark rather than the old music note.
+- Ryotunes follows the Style page in Ryoku Settings now. Design, colours, light or dark, contrast, tint, reduced motion and the Japanese words all come from there and change while Ryotunes is open, and Settings, Appearance shows what the desktop uses with a button that opens Ryoku Settings.
+- Material, Adwaita and Fluent work in Ryotunes too, with their own rounded corners and surfaces like the rest of Ryoku. Covers stay rounded squares and the visualizer bars stay sharp.
+- Ryotunes looks like Ryoku Settings: a numbered sidebar with its Japanese words, a header on every page with where you are, the service and the time, ruled sections, a line of counts under each page title, and Ryoku's motto at the foot.
+- Your playlists open and close as a folder in the sidebar, with New playlist as its first item, and while Settings is open its sections hang under it and take you straight there.
+- Hovering, pressing and moving around all have the same small animations as Ryoku Settings, at your screen's full refresh rate, and nothing moves while you're not doing anything.
+- Home shows your listening for the last two weeks: plays and listening time as charts, plus this week's plays, your top artist and your top song. The daemon needs a restart after updating for the charts to show.
+- Unliking a song, removing something from your library, unsubscribing from an artist, dropping a radio favourite, stopping watching a folder, resetting a setting and changing the equalizer now show a notice with Undo.
+- Settings marks the rows you changed and gives each one a reset, asks before clearing caches, signing out, disconnecting Last.fm or removing a folder, and keeps the rarely used options under More options.
+- The equalizer is drawn like Ryoku's charts, its values roll as they change, a preset glides into place, and a dragged point follows your pointer smoothly while the value stays exact.
+- The player bar shows the service and where you are in the queue under the artist, and search suggestions are grouped with your words underlined.
+- Text is set in Geologica and Martian Mono, and the icons are Material Symbols like the rest of Ryoku.
+- The queue, lyrics and sidebar open as drawers over the page with the page dimmed behind them when there's no room to dock.
+- Now playing, the album, playlist and artist pages, Home's now playing card and the mini player show the cover, heavily blurred, behind them. Its shapes and colours come through while text over it reads the same on any cover, and it fades over when the track changes.
+- Black and white or dark covers no longer turn Ryotunes navy blue: a cover without colour makes the window grey, with grey buttons and bars and the sung lyrics in white, and dark covers no longer pick a bright blue from their shadows.
+- The equalizer's bands spread across the whole row instead of bunching up on the left, and each band's gain, frequency and Q sit centred over its fader. With more bands than fit, the row scrolls and + Band stays in view.
+- The equalizer has a back button next to its title, and Escape leaves it too, back to where you opened it from.
+- YouTube Music and SoundCloud stay signed in. Ryotunes follows the session in your browser instead of keeping a copy that goes stale, so YouTube Music is still signed in after days off, and Sign in works again when an old session ran out. SoundCloud's browser session lasts a day unless soundcloud.com is opened, so after a day away, open it or press Sign in once. It only ever adopts the same account.
+- Your Spotify sign-in from Ryotunes 1.x carries over, and Spotify being busy when Ryotunes starts no longer signs you out. TIDAL stays signed in through network trouble, asking again only when TIDAL ends the session.
+- Songs you play in Ryotunes count in your YouTube Music history again, unless Watch history is off in Settings, so Home's recommendations follow what you listen to. A song counts once it actually starts, not when it's skipped past.
+- Listen Together guests hear the song play through. The host's updates no longer restart it a few times a second; a guest only catches up when it's more than two seconds off, and joining a paused room opens the song paused.
+- Covers show right away when you open the app: they're kept on disk between launches, and more of them load at once. A cover that changed is picked up within a month, and Force clear caches in Settings, Storage clears saved covers too.
+- Empty pages and panels have room around their message instead of sitting against the header.
+- Ryotunes no longer opens empty for about 12 seconds when music is already playing. It shows what's playing right away.
+- A browser opened from Ryotunes, for sign in or a link, is no longer closed when the playback service stops or restarts.
+- Choose whether Ryotunes opens floating or tiled with Open as a floating window in Settings, Appearance. Tiling window managers like niri and Hyprland follow it, and the mini player always floats.
+- Downloaded music plays now, straight from the file and without a connection: Play on a saved download or double click it, or play the track from anywhere else. Show in folder moved to the right click menu.
+- With nothing playing there's no empty player bar anymore. It slides up when something starts and folds away when the queue empties.
+- Fast scrolling no longer skips ahead in long pages and lists.
+- Hovering a cover, song or row leaves room around it, so titles don't touch the edge of the highlight anymore.
+- Menus light up the row under the pointer instead of darkening it.
+- Sound presets and the appearance choices wrap onto a second line instead of scrolling sideways, and the equalizer's bands show when there's more to scroll.
+- The Ryoku mark in the sidebar and About is the current logo.
+- Ryotunes now has its own notice: GPL-3.0-or-later, copyright Ryoku-dev and contributors, a trademark term for the Ryoku and Ryotunes names and marks, and every bundled component's license, also reachable from Settings, About.
+- Lyrics are sung word by word now: each word fills with the cover's colour as it's sung and lifts a little, and the line being sung grows into place while the last one settles back. Lyrics that only time each line get their word timing estimated, and it can be turned off in Settings, Lyrics.
+- Tint with the cover in Settings, Appearance gives the whole window the colour of the cover that's playing and retints it when the track changes. It's off by default, so Ryotunes wears the same surfaces as the rest of Ryoku.
+- A new cover slides in behind a sharp diagonal cut when the track changes.
+- Visualizers are bolder and react much more to the music: loud bands are brighter, bars have peak caps that hold and fall, every style kicks on the beat, and the now playing visualizer is taller.
+- Fixed the Word-timed lyrics setting showing off while it was actually on.
+- Ryotunes takes its colour from the album art now: the play buttons, the seek wave, the visualizer, hearts, the playing track and the lyrics all match the cover that's playing. Settings, Appearance can switch it to the provider's colour or your Ryoku palette instead.
+- Home has a now playing card with the cover, the seek bar, the controls and a visualizer, and clicking the cover there or in now playing plays and pauses.
+- The visualizer has four styles in Settings, Appearance, or by clicking it on Home: bars, curve, oscilloscope and vectorscope. The scopes read the real stereo signal through pw-record, only while they're on screen.
+- New parametric equalizer with up to 20 bands: drag the points on the curve, use the wheel for Q, double click to add a band, pick a preset or paste an AutoEQ profile. Open it from the sound menu or Settings, Sound.
+- The sidebar folds down to an icon rail and back with the button next to Back or Ctrl B, and it remembers your choice. On narrower windows the same button opens the full sidebar over the page.
+- The mini player is a wide strip now, with the cover along its left edge and no empty space around it.
+- Ryotunes is laid out like a music player now: your playlists sit in the sidebar, the queue and lyrics open beside the music and the player stays along the bottom, with a now playing view for big artwork and lyrics.
+- The Ryoku mark is back, and the provider switcher sits on top with the provider icons again, lit in the provider's colour.
+- Search is one field in the top bar, with recent searches and suggestions while you type.
+- The Discord toggle is back in the top bar, artists can be subscribed to again, and Settings has its missing rows back: sound, watched folders, playlist import and export, diagnostics and the engine version.
+- The seek bar is a slim, sharp zigzag that moves while music plays and lies flat when you pause, like Android's wavy progress but cut in Lithic.
+- Page headers and the now playing view have a visualizer that moves with the music at 60 frames a second. It can be turned off in Settings, Appearance.
+- Home's mood chips now replace the page with that mood's music, and All brings the usual Home back.
+- Sign in opens your browser for YouTube Music, Spotify, SoundCloud and TIDAL, with Open again and Copy link while it waits, and the Home Sign in starts it right there. YouTube Music first tries the session from one browser profile at a time and opens the browser instead of showing an error when that session can't be used.
+- Fixed lyrics in now playing falling behind the song, the mini player getting cut off at 110% zoom, the time over the seek bar being cut in half, and the Settings section list trailing behind your scroll. The mini player's window buttons are smaller and sit clear of the corner.
+- Ryotunes shows up as Ryotunes instead of mpv in your volume mixer.
+- Fixed trackpad scrolling trailing behind your fingers, the sound popover getting cut off at the bottom of the window, the volume being hard to drag, a narrow window hiding the page behind the queue, and Ryotunes not opening again while something else was listening to its events.
+- Fixed remote playback stalling or skipping during back-to-back loads, restored live playback events, made daemon shutdown deterministic, and applied proxy changes across every network-backed source and download.
+- Fixed an empty "Untitled track" that could replace your queue and come back after every restart. Local music covers show up again too.
+
+## v1.2.3 - 2026-10-19
+
+- Void Linux support: `scripts/install-void.sh` and Settings → About → Update now install the release as an xbps package. See docs/INSTALL-VOID.md.
+- Fixed the daemon not starting on glibc older than 2.44 (Void ships 2.41). Release builds now fail if any binary needs a newer glibc than 2.41.
+- Fixed missing cover art on Void: the package now pulls in Qt's TLS plugin, and `ryotunes-diagnostics` reports when it's missing.
+
+## v1.2.2 - 2026-10-19
+
+- Settings ▸ Software updates now updates Ryotunes on Ryoku's Void and Fedora editions too. Where Ryotunes came from the Ryoku package repository, Update asks polkit to update it with xbps or dnf instead of refusing because pacman is missing, and says so when the repository has not built the new release yet.
+
+## v1.2.1 - 2026-10-17
+
+## v1.2.0 - 2026-10-14
+
+- Fixed Settings ▸ Software updates wrongly saying "This is not a pacman-managed Ryotunes installation" after a system upgrade replaced Ryotunes while it was running. It now says the new version is already installed and offers "Restart to finish update", which restarts straight into it with nothing to download.
+
+## v1.1.9 - 2026-10-14
+
+- Every song, album, playlist and artist now shows where it comes from: cards carry a small YouTube Music, Spotify or SoundCloud badge in that service's colour on the cover, and track rows show the same glyph beside the title. Ryotunes' own collections (On Repeat, local playlists, files on disk, radio) carry none.
+
+## v1.1.8 - 2026-10-14
+
+- Fixed Spotify playback stopping at the end of every track instead of moving on, and seeking doing nothing: the track now ends cleanly into the next one, and seeking jumps within the already-buffered track.
+- Spotify tracks now show their length in the desktop media widget.
+- Saved Spotify songs, albums and artists now come back newest first, and Spotify playlists and Liked Songs have the same sort menu as the other providers.
+- A Spotify session that drops mid-listen now reconnects on its own from the saved sign-in, with a short cooldown between attempts, instead of giving up after the first reconnect. An account Spotify refuses outright (no Premium, out of region, revoked) is not retried until you sign in again.
+- YouTube Music now answers in your system language and region (from `LC_ALL`, `LC_MESSAGES` or `LANG`) instead of always US English. The Tauri build's own menus and dialogs also gain a French translation.
+
+## v1.1.7 - 2026-10-14
+
+- Fixed music stopping and the app closing after a few minutes of playback: the daemon's hidden YouTube helper views loaded the desktop accessibility bridge, and when the session's accessibility bus went stale the bridge crashed the whole daemon the next time a helper view was built. The daemon no longer loads the bridge at all, since those views are never shown.
+
+## v1.1.6 - 2026-09-25
+
+- SoundCloud sign-in now happens in your own browser instead of a Ryotunes window: pressing Connect opens soundcloud.com (captchas and Google/Facebook/Apple popups work there), and the daemon watches your browser's cookie stores, Firefox-family and Chromium-family profiles with the default browser first, importing the session the moment it appears and proving the token against `/me` before saving it. Already signed in in the browser? One click imports it instantly, no browser round trip. Cookie stores are only re-read when their file actually changes, and an unfinished sign-in ends with a clear message after five minutes rather than hanging.
+
+- Installing an update from Settings now restarts Ryotunes by itself: after the package lands, a detached helper waits for the old daemon to release its socket lock, then relaunches, socket-activating the new daemon and opening the new client, instead of leaving "quit and reopen" as the user's chore. If the helper fails, the app stays open with the old manual guidance as the fallback.
+
+## v1.1.5 - 2026-09-25
+
+## v1.1.4 - 2026-09-24
+
+- Fixed "Download playlist / Download album" always failing (albums: "missing field `video_id`", playlists: "missing field `videoId`"): two stacked bugs, the client mapped an album/playlist's rows into batch entries twice, dropping every track id, and the daemon's batch endpoint read its JSON in snake_case while the client posts camelCase. Single-track downloads were unaffected, which is why only albums and playlists broke.
+- Album and playlist downloads now read as one collection: the queue and history group every batch under a single card showing the album/playlist cover, kind, aggregate progress and how many tracks are saved, waiting, failed or cancelled, expandable to its per-track rows. Batch tracks also land in a folder named after their collection on disk, and re-downloading still dedups against them wherever they sit.
+- Added Settings ▸ Diagnostics: one rolling record of everything that went wrong, for both halves of the app. The daemon logs its own warnings and errors, every failed request, and panics to a ring buffer and a rotating file (`$XDG_DATA_HOME/dev.ryoku.ryotunes/logs/ryotunesd.log`); the client forwards the failures it sees (rejected actions, lost connections, error toasts), buffering them while the daemon is down and delivering them on reconnect. The page filters by level, source and text, copies the whole list to the clipboard, and opens the log folder, so "songs won't play" finally has evidence to show instead of a guess.
+- Settings ▸ Storage's cache action is now a one-click playback repair: "Force clear caches" drops every layer that can wedge stream resolution, including cached stream URLs and lyrics, mpv's on-disk audio bytes, the stored PoToken and the per-video WEB_REMIX failure blacklist, and rotates the anonymous YouTube playback identity (`visitorData`) on the spot, which is the manual fix for "Couldn't load this track: YouTube rejected the stream link". If the identity re-fetch fails (offline), the toast says so; the token is still dropped, so the next launch or a bot-gated resolve re-bootstraps it. Changing stream quality keeps clearing only the URL cache and no longer rotates the identity.
+
+## v1.1.1 - 2026-09-24
+
+- Added SoundCloud sign-in: a Ryotunes window opens the site's own sign-in (account or Google/Facebook/Apple), captures the session's OAuth token from the webview's cookie jar, proves it against `/me` before saving it, and keeps it alive through SoundCloud's rotating refresh. Signing in is optional, so SoundCloud still browses and plays as a guest, but a signed-in account adds its own playlists, liked tracks and followed artists to Home, and the token survives restarts (an expired one says so instead of silently vanishing).
+- Home is now the merged feed: YouTube Music's shelves remain the spine (the default source, signed in or not), and every signed-in provider contributes its own shelves to the same page, including Spotify's made-for-you rows when a Premium session exists and SoundCloud's personal rows when connected. Cards navigate and play across providers exactly as before; one provider being down never blanks the page.
+
+## v1.1.0 - 2026-09-24
+
+- Fixed some users being unable to play any YouTube track ("Skipped (unavailable)" on everything): YouTube's anonymous playback clients now require a valid `visitorData`, and a failed first fetch used to leave the daemon without one for its whole life, so every stream request hit Google's bot gate. The startup bootstrap retries with backoff, and a resolve that is rejected by the bot gate now fetches a fresh `visitorData` on the spot and retries once.
+- Fixed Spotify Premium users seeing "sign in" on every launch and every track skipped as "not available": the cached session is announced to clients once it restores (it used to finish silently after the UI snapshot, leaving the gate up), the sign-in gate explains a genuinely dead session instead of demanding a fresh login, a dead librespot session is detected and (once per credential lifetime) recovered from saved credentials before a track is reported as needing sign-in, a Spotify queue that needs sign-in now stops with the real reason instead of toast-storming "Skipped (unavailable)", and the Spotify device identity is persisted per installation instead of re-randomising on every launch.
+- Added Download playlist to the playlist page menu: albums and playlists batch-download through one daemon call that gathers every continuation page and admits the whole collection against a single dedup pass.
+- Downloaded tracks are now smart-deduplicated: re-downloading a collection (or a single track) skips audio already in the download folder even when it lives there under a different upload's id or a ` (N)` collision name, matching on the normalized "artist title" as well as the exact filename.
+
+## v1.0.8 - 2026-09-20
+
+- Stopped Now Playing stuttering while the window is resized or scaled: the cover size read the column's assigned width and the body's assigned height, feeding layout outputs back into the children's preferred sizes, so the column re-polished itself on every pass. The cover now sizes from the root and the header's implicit height, which are layout inputs.
+
+- Fixed every page rendering blank under Ryoku's Reduce motion: the page-stack enter animation used render-thread Animators, which never apply their end value at duration 0, so the stack was stranded at opacity 0. The end state now lands directly when there is no animation to run.
+
+## v1.0.6 - 2026-09-08
+
+- Fixed app-launcher activation after removing and reinstalling Ryotunes: removal now stops the user units before deleting them, and a fresh install repairs stale socket state left by older packages. Ordinary upgrades still leave playback and self-update RPCs running.
+- Presented Ryotunes consistently as Ryoku's main music app in pacman, the app launcher, and software catalogues.
+
+## v1.0.5 - 2026-09-08
+
+- Fixed Home snapping back to the top when a continuation page arrived: new shelves now append to a persistent Qt list model instead of replacing the model.
+- Made the Linux launcher native-QML-only, including cold starts and missing sockets. Removed the legacy Tauri overrides and duplicate desktop entry; Quickshell is now a required package dependency.
+
+## v1.0.4 - 2026-09-08
+- Prevented automatic QML reload during package upgrades, which could reload `shell.qml` while pacman temporarily removed it. Quit and reopen after installation to load the new client and daemon together.
+- Fixed the primary QML Home page jumping past its header on the first scroll. Asynchronous header growth stays pinned only until the user starts scrolling.
+- Home now puts a compact resume control and remembered listening context ahead of discovery. Played songs, albums and playlists persist across launches without counting a restored queue as a new listen.
+- Added searchable Home shortcuts from recents, the library and provider search, plus YouTube playlist-link previews. Duplicate/capacity feedback and a bounded scrolling list keep the controls usable in small windows.
+- Added a bounded, on-device Home discovery ranker using the existing provider feed, listening recency, artist affinity and diversity. No additional recommendation service, model training or idle polling is introduced.
+
+## v1.0.3 - 2026-09-08
+
+## v1.0.2 - 2026-09-08
+
+## v1.0.1 - 2026-09-08
+
+## v1.0.0 - 2026-09-08
+
+- **Fresh v1 releases on every default-branch push.** The app, daemon, CLI, native client and package start at `1.0.0`. CI queues pushes, builds each exact source, and advances `1.0.9 → 1.1.0` (major fixed at 1). Releases include generated notes, binary/source archives and SHA-256 sidecars. A permanent pacman `epoch=1` makes v1 packages an upgrade from legacy v2 installations without changing the release asset filenames. Package hooks no longer restart the daemon during the transaction.
+- **About credits and standalone updates.** Both clients credit ashmitvoid and neur0map and link LiMusic upstream. About shows current/available versions, checks GitHub on request, opens the changelog and installs verified official Arch packages with administrator approval, independently of a full Ryoku update. After installation, fully Quit and reopen Ryotunes to reload the client and daemon.
+- **Releases ship a prebuilt Arch package.** Each release builds `ryotunes-<version>-1-x86_64.pkg.tar.zst` (and its `.sha256`) with an unprivileged `makepkg` in an Arch container from that release's exact source and attaches it to the GitHub release beside the reproducible source tarball, so `pacman -U` and Ryoku's `update`/`doctor`, which read GitHub releases directly, no longer wait on a downstream rebuild. `scripts/build-arch-package.sh` reproduces the asset locally (`docker run --rm -v "$PWD:/src" -w /src archlinux:latest scripts/build-arch-package.sh`). The old `ryotunes-release` repository_dispatch into Ryoku Arch is removed.
+- Release checks now validate synchronized manifest versions and shipped capability policy rather than pinning UI copy, comments, or implementation source text; version bumps no longer rewrite the check script.
+- Added **Download album** to the native album menu: queues the complete album rather than filtered rows, follows continuation pages, reuses download preferences and bounded workers, and reports unavailable tracks or partial admission errors.
+- **One-click music downloads in the native client.** A download control beside the heart saves the current track immediately; Downloads in the sidebar shows progress, waiting tracks and persistent history with cancel, retry and open-folder actions. Settings › Downloads adds the destination, Original/MP3/Opus formats, artist folders, embedded cover art & lyrics, and a safe 1–4 worker limit (default 1). Workers survive window closure, never overwrite existing files, and are terminated/reaped on quit; interrupted jobs remain retryable. YouTube and public SoundCloud use their source links; Spotify uses a clearly labelled YouTube search match. Downloads embed available cover art and plain lyrics where supported and save matching image and synced `.lrc` or plain `.txt` companion files. Local lyrics take precedence over network lookups for offline playback. Metadata lookups send track details to external providers; missing matches produce non-fatal history notes.
+- **Device playlists get automatic artwork.** A local playlist's card and page now build a cover from its own songs: four distinct song covers become a 2x2 collage, one to three collapse to the first cover, an empty playlist shows none. A custom cover you pick still wins everywhere, and removing it (Reset) drops straight back to the automatic art without a round-trip to YouTube Music. Cards, the page header and the sidebar refresh the instant tracks are added or removed or a cover changes.
+- Fixed native-client reconnection when the daemon was absent on the initial connection attempt, so download state and playback resynchronize without reopening the client.
+- Join the mpv event reader before destroying its native handle, preventing a shutdown race exposed by download metadata enrichment.
+- **Ryotunes v2 Discord presence.** The Rich Presence card is rebuilt around the v2 identity: the track's album art is the hero image with a small Ryotunes badge overlaid (**Ryotunes v2** on hover), and when a track has no shareable art (local files, missing thumbnails) the Ryotunes brand mark stands in rather than the underlying Discord application's icon. Hovering the art now shows the album and the service it is playing from, and the "listen" button is routed by provider: YouTube Music watch pages and Spotify `open.spotify.com` track pages, with SoundCloud (numeric-id only) and local/radio tracks left linkless rather than pointing somewhere wrong. The default "Listening to" title is now **Ryotunes v2**; a custom title you set is still kept. (The Discord application registration itself is still the upstream one; changing the name and icon Discord shows in its own app registry needs a Ryotunes-owned Application ID, which is pending.)
+
+## v2.5.1 - 2026-09-06
+
+- **The heart saves without an account.** Liking a track when there is no YouTube Music session (or on a SoundCloud/local track) lands it in a device-local **Liked Songs** playlist that Library › Songs shows and the library lists; unliking removes it, the heart and the now-playing snapshot reflect it at once. Signed in, YouTube's own rating is used as before.
+
+## v2.5.0 - 2026-09-06
+
+- Releases are one command: `scripts/release.sh patch|minor|major --push` bumps every manifest, rolls this changelog, tags; the `Release` workflow verifies the tagged tree builds (binaries, web UI, skins, tests), publishes the GitHub release with a reproducible source tarball + sha256, and tells Ryoku Arch, whose own workflow bumps the `[ryoku]` package and publishes it. The package enables `ryotunesd.socket` for every user (preset + install hook), which is what made a fresh install open the old Tauri app before.
+
+- Power: the cover wash no longer drifts every frame (the client sat at ~35 % of a core while playing; now ~1.6 %). Pause-to-quit: a minute into a pause with the main window off screen the client exits, and the daemon's idle grace is now 60 s (was 5 min), so a paused, closed Ryotunes is fully out of memory about two minutes after the pause; socket activation brings it back on the next launch, media key or MPRIS call. Signing out drops the account's recents (Liked Music, library playlists) from Home's Jump back in.
+
+- Seven expressive shipped skins beside Paper/Ember/Mist - **Neon**, **Vapor**, **Phosphor**, **Arcade**, **Broadsheet**, **Concrete**, **Velvet** - each with its own bundled OFL faces (Unbounded, Playfair, Major Mono, Press Start, Bebas Neue, Cormorant…), radii, motion and wash. Every display title now takes the skin's face (three surfaces still read Ryoku's). `RYOTUNES_SKIN_MODE` pins a mode for previews so light-first skins render light.
+
+- Skins are RyoStore products: the store's new `ryotunes-skins` category installs into `~/.local/share/ryoku/ryotunes-skins/<id>/`, which Ryotunes reads as the STORE source (after user skins, before shipped) and watches, so an install shows up in the picker without a reload; *Settings › Appearance › Get more skins* opens the store on the category; `ryotunes-cli skin use <id|system>` selects a skin from a shell. The catalogue ships 20 skins derived from Ryoku's colour schemes.
+
+- **Skins.** One source for every colour, face, radius and duration: `system` (the Ryoku desktop, live), `matugen` (a skin written by a matugen template from the wallpaper; on Ryoku one of the Theme apps), or any `skin.json` folder under `~/.config/ryotunes/skins/` or `/usr/share/ryotunes/skins/` (shipped: paper, ember, mist). Live reload while editing, a picker + fork + folder buttons in Settings › Appearance, `ryotunes-cli skin check|list|show`, a JSON schema, `docs/SKINS.md` and `skins/README.md` for contributors, `scripts/dev/skin-preview.sh` for the 800x500 previews. Decor gains a "Skin default" level.
+
+- **SoundCloud** is the third provider, no account needed (`crates/soundcloud`, api-v2 with a scraped `client_id`, HLS AAC 160k straight into mpv). Search, artists, albums/playlists, Discover Home (Trending by genre, Curated, Artists to watch), related-track autoplay, and SoundCloud's own per-track **waveform** as the seek bar in the player bar, the Home card and the Now Playing stage. SoundCloud artist pages take the Orange/SoundCloud shape: banner, avatar, followers, tracks left, "Albums from this user" right.
+- Now Playing stage re-laid: header row with the Collapse pill, top-aligned art + title column, one foot band (waveform or spectrum); the glow box is gone.
+- Spotify stays Premium-only (librespot); the sign-in gate now says why a sign-in failed.
+
+- Client visual pass to the old design's proportions (`docs/superpowers/specs/2026-09-05-eye-candy-spacing-pass.md`): Home hero with the Now Playing card, faded chip row, `// Section` headings, Shortcuts / Jump back in / Familiar artists panel; sidebar brand card, numbered groups, playlists with `+ New playlist`; queue rows that keep their titles readable; Now Playing stage with a `Collapse` pill. The stage was stuck open: the player bar's expand button now toggles it and Escape closes it.
+
+- Added the native Ryotunes client: `ryotunesd`, a Tauri-free daemon (playback, Innertube, library, MPRIS, tray, Last.fm, Discord, Listen Together, socket-activated via `ryotunesd.socket`, exits five minutes after the last subscriber leaves with nothing playing), `ryotunes-cli`, and a pure-QML client run by Quickshell (`ryotunes-qml`, installed at `/usr/share/ryotunes/client`) that reproduces the Svelte UI (Home, Search, Library, Playlist, Album, Artist, List, Radio, Settings, Queue, Lyrics, Now Playing, Listen Together, mini player, command palette) with the Ryoku theme singletons. The native client is the default: `ryotunes` asks the daemon to show (socket activation starts it after a boot), which raises the connected client or opens `ryotunes-qml`; the Tauri app runs only on `ryotunes --tauri` or where no daemon socket exists. Measured on a Ryzen 7940HS laptop: paused idle 0.1% CPU (Tauri: 2% plus three WebKit processes), playing idle 0.7% + 2.1%, Home scroll 0.8% (Tauri: 60% WebKit + 16% host).
+- Fixed reopening the native client after Super+Q: the daemon's `show` event was not handled by the client at all, and Quickshell leaves a compositor-closed `FloatingWindow` at `visible: true`, so the window never came back until the process was killed. The client now handles `show` and remaps the window.
+- Rebuilt the native client on one visual system (`docs/superpowers/specs/2026-09-05-native-client-visual-design.md`): Sonora's three-column frame (title bar, 248 px rail, content, a persistent 340 px Queue / Lyrics panel, an 88 px player bar with the transport centred on the window) in Ryoku's flat-paper, hairline, bone-plate language; one type scale (Fraunces titles, Space Grotesk body, tracked mono labels); page heroes and table-style track lists; the playing cover as the room's light (a static blurred backdrop that cross-fades on track change and drifts only while playing) and its sampled accent on playback state only; the Now Playing stage with a spectrum ribbon fed by cava while visible and playing; snapshot-blurred modals. Passive motion is gated on playing, not reduce-motion and not power-saver.
+- Restored the compact player as the Tauri widget's 724 x 356 geometry: a layer-shell surface with the widget as a draggable item inside it (the previous surface-dragging approach fed its own deltas back), above windows, position remembered.
+- Added Sound: tempo, pitch, reverb, bass and stereo width on the daemon's mpv filter chain (`set_audio_fx` / `get_audio_fx`, `audio-fx` event) with presets (Slowed + Reverb, Nightcore, Bass Boost, Wide) from the player bar and Settings.
+- Added `crates/spotify`, a Spotify provider lifted from nolight132/sonora (GPL-3.0-or-later): OAuth sign-in, Pathfinder / protobuf metadata, collection, playlists, colour-lyrics, and streaming through librespot's pipe sink into a FIFO mpv plays raw, so every mpv feature (the Sound chain, MPRIS) applies to Spotify audio. The title bar's provider switch lights the window red for YouTube Music and green for Spotify (a tweened glow, the page re-entering on a switch); daemon routing behind it is the next step, and YouTube Music is unchanged.
+- Extracted `crates/core` (innertube clients, player, state, library, integrations) out of `src-tauri`; the Tauri host is now command forwarders over `ryotunes_core`.
+- Fixed the Arch package build under makepkg's `lto` option (`options=(!lto)`): the vendored sqlite and ring C objects cannot be linked by lld when compiled with `-flto`.
+- Fixed the timeline freezing for the rest of a session after a seek-thumb drag released outside the window: WebKitGTK delivered neither `change` nor `pointerup`, so the locally held drag value shadowed every later position tick (reproduced by dragging past the window's bottom edge; MPRIS kept ticking, the bar did not). Both seek sliders now commit the pending drag on pointer release, capture loss, window blur, the first buttonless pointer move, or a track change.
+- Removed the scroll-time `ryo-is-scrolling` class toggle: rules keyed on it reached every image and every promoted artwork layer, so each wheel notch cost a whole-page style recalculation plus compositing-layer churn, twice. Scrolling stays paint-bound in WebKitGTK (about 60% of a core while scrolling on a 2560x1600 panel, unchanged), which the native client work addresses.
+- Added `RYOTUNES_WEBKIT_FEATURES=Name=1,...` to flip WebKitGTK feature flags (for example `CompositingBordersVisible`, `CompositingRepaintCountersVisible`) when profiling the renderer.
+- Brought the release gate back to green on a clean checkout: the reveal-failsafe invariant matched the old 1500 ms, the private-path scan tripped on a git worktree's `.git` file, and two files had drifted from rustfmt.
+
+## v2.4.1 - 2026-09-02
+
+- Isolated the remote Google login and hidden cipher/PoToken JavaScript WebViews from all Ryotunes application commands using Tauri's runtime-authority AppManifest and an explicit main/mini-only command permission.
+- Replaced broad bundled `core:default` exposure with only the app/event and explicit window/WebView permissions the UI needs.
+- Hardened native filesystem boundaries: file choices stay behind Rust pickers, watched music folders are not recursively asset-visible, forged local-track ids are rejected, and portable playlists cannot contain local/radio identifiers.
+- Hardened Internet Radio with official mirror filtering, bounded directory responses, opaque native station resolution, persisted-record revalidation and rejection of local/private/reserved/IP-mapped stream addresses.
+- Hardened renderer-controlled settings, proxies, external URLs, Google login navigation and Listen Together endpoint validation.
+- Bounded Listen Together WebSocket frames/messages, room state, queue/suggestion counts and per-client outbound queues.
+- Restored the default Discord Rich Presence title to **Ryotunes** while preserving custom local vanity text.
+- Added weekly dependency monitoring/security audits and release invariants for the new trust boundaries.
+- Preserved native libmpv playback, WebKit hibernation, MPRIS/tray lifecycle, five-minute idle exit and event-driven performance behavior.
+
+## v2.3 - 2026-08-27
+
+- Fixed Ryoku/Hyprland cold-launch geometry by adding compositor-owned `size = { 1760, 1000 }` to the exact-title managed window rule.
+- Polished the Home listening-console controls so Play/Pause and Queue have a balanced gap above the lower divider.
+- Expanded Light mode into a richer parchment/sage/blue-grey/clay/gold palette with clearer surface separation and no new continuous visual effects.\n- Added event-driven Ryoku theme parity: Follow System now mirrors the same named/wallpaper Material roles as Ryoku.Ui Tokens, updates main + mini immediately through inotify/Tauri events, and primes the palette before window reveal.
+- Preserved v2.2 audio-only native playback, background WebKit hibernation, MPRIS/tray lifecycle, stable Home DOM, mini-player behavior and event-driven performance architecture.
+
+
+
+### FINAL R3 visibility hotfix
+- Fixed a Linux hidden-window deadlock where the main WebView started with `visible:false` but its reveal handshake was queued behind `requestAnimationFrame`; WebKitGTK can suspend rAF for hidden toplevels, leaving Ryotunes running only in the tray even after repeated launches.
+- The mounted Svelte tree now sends readiness immediately, with bounded timer retries.
+- Added a native reveal deadline for cold start, reconstructed main windows, and second-launch recovery so a lost frontend readiness message cannot leave the application permanently invisible.
+- Added release invariants guarding against reintroducing rAF-gated hidden-window readiness and requiring the native recovery path.
+
+## v2.2 - 2026-08-27
+
+- Promoted Ryotunes to the final Ryoku-shell user release candidate.
+- Raised default floating main-window fallback to 1760×1000 logical and adaptive mapped geometry to ~92% × 84% of monitor work area.
+- Changed untouched/fresh UI scale default and Ctrl+0 reset from 120% to 110%, while retaining persisted custom values.
+- Redesigned mini-player spacing and icon-led Now/Lyrics/Queue navigation; fixed compact active-lyric clipping and stale manual-scroll restoration.
+- Lowered Light/Follow-System-Light luminance and strengthened surface hierarchy.
+- Removed pointer seek focus rectangles while keeping keyboard seek focus legible.
+- Added breathing room around bottom-player and Home listening-console transport controls.
+- Stopped Settings/header divider lines before the close-control zone.
+- Kept v2.1 R3 cold-start/reopen native reveal failsafes, Search pagination, Home stable-DOM behavior, background WebKit hibernation and native Quit/MPRIS teardown.
+
+## v2.1 - 2026-08-27
+
+- Fixed first-launch visibility with one native frontend-ready handshake shared by cold start and reconstructed WebViews.
+- Fixed mini-player expand-to-main race by retaining the mini surface until the full UI is actually visible.
+- Replaced transient Hyprland map-rule injection as the primary policy with a Ryoku-style persistent `hl.window_rule`; adaptive work-area geometry stays native and hidden before reveal.
+- Added real bounded Search continuation through Innertube/Tauri/UI for mixed, song, album, artist and playlist result streams; removed practical first-page ceilings.
+- Isolated Search nested scrolling so touchpad/wheel gestures cannot chain into the background page.
+- Redesigned the mini-player visual shell and segmented PLAYING/LYRICS/QUEUE navigation; removed action menus only from mini queue rows.
+- Added mini-safe keyboard transport handling and kept one central full-app shortcut registry.
+- Reworked Light mode to a warm layered stone palette rather than bright white surfaces.
+- Preserved audio-only playback, background WebKit hibernation, five-minute tray idle shutdown, explicit Quit teardown, stable Home DOM and bounded artwork/cache paths.
+
+
+## v2.0 - 2026-08-26
+
+- Canonicalized the frozen v2.0 Cargo.lock from the target-machine Cargo diff: removed stale `httpdate` and `tauri-plugin-window-state` lock entries and the stale `hyper -> httpdate` edge. The builder now requires `cargo fetch --locked` to accept the shipped lockfile directly and never performs an unlocked refresh.
+- Fixed native `pnpm check` blockers found during the first target-machine build: keyed-each `animate:flip` structure in Edit Home, module/instance `BrowseItem` import collision in Search, listbox option focus semantics, and deprecated Svelte module-script syntax.
+- Added complete compact Now Playing/Lyrics/Queue mini-player views using shared queue/lyrics state.
+- Added bounded decode-before-swap artwork preparation shared by large Now Playing and mini-player artwork.
+- Replaced the full-Search eight-result snapshot with a bounded scrollable/incremental result workspace and richer selected-result detail panel.
+- Centralized track context actions across visible ⋯, pointer context click and keyboard context invocation; ⋯ actions are now visible at idle.
+- Introduced one Home/Edit Home section registry, central video-shelf rejection and central seed-artist heading normalization to `You might also like`.
+- Made session-cached Home stable on revisit instead of silently revalidating visible page-one shelves while scrolling.
+- Added stable Tauri GTK/Wayland app id plus pre-map Hyprland float/89%×84%/center rules and retained native geometry fallback.
+- Unified cold-start and Linux tray-reopen hidden-until-frontend-ready reveal behavior to avoid blank WebKit frames.
+- Reworked Light mode into layered page/card/panel/sidebar/player tokens and standardized shared dialog close geometry.
+- Preserved audio-only playback, event-driven transport, background WebKit hibernation, five-minute tray idle exit, Low Resource Mode and deterministic explicit Quit.
+- Rebuilt release invariants, `/proc/<pid>/exe` diagnostics and zero-touch `ryotunes-v2.0 2.0.0-1` replacement packaging.
+
+## v1.9 - 2026-08-26
+
+- Adaptive centered Ryoku/Hyprland floating window (~89% × 84% of monitor work area) with no stale maximized/fullscreen restore.
+- Restored and redesigned the 640×200 Ryoku-style mini-player; its boot surface can no longer cover the compact UI.
+- Faster perceived cold start/reopen by showing the themed shell first and deferring optional visitor, local-library, Listen Together, cipher and search-prewarm work.
+- Search suggestion/full-search consistency: reliable All Results handoff, recent-search structure and standard track actions.
+- Familiar Artists top-track actions, clear `More like <artist>` headings and audio-only filtering of video shelves/results.
+- Darker muted Light theme, safer live Ryoku accents, long-title clipping and seek/focus styling fixes.
+- Queue drag commit/settle refinement, Queue/Lyrics state retention, shelf navigation and large-playlist filtering.
+- Discord `Listening to Music` branding/backoff/logging cleanup and authoritative Linux autostart synchronization.
+- Preserved five-minute tray-only no-playback exit, deterministic explicit Quit and Low Resource/background-WebKit architecture.
+- Robust process diagnostics and zero-touch Ryoku replacement packaging with newest-available stock-backup migration.
+
+## v1.7 R4 - 2026-08-26
+
+- Hardened explicit Quit into one authoritative shutdown path: stop mpv, clear/drop MPRIS, close Discord presence, leave Listen Together with a bounded timeout, then exit.
+- Kept paused background playback resumable from Ryoku QS/MPRIS; Pause no longer means an idle/empty session.
+- Closing the mini player now closes only the mini surface instead of rebuilding the full application.
+- Added Follow system / Light / Dark appearance modes with a warm, low-glare light palette and Ryoku accent integration.
+- Made Discord Rich Presence report Disabled / Connecting / Connected / Unavailable and react immediately to its toggle.
+- Expanded Low Resource mode into native transport cadence and Home/network policy while preserving playback quality.
+- Coalesced queue reorder pointer work to animation frames, kept the dragged row normal-sized and refined insertion/edge-scroll feedback.
+- Improved Listen Together form readability, modal close geometry and transport-button focus treatment.
+- Deferred optional cipher/network prewarm off the cold-start critical path and shortened UI reconstruction safety delays.
+- Removed eager Home continuation crawling/community enrichment, bounded Familiar Artists loading and retained v1.6 WebKit hibernation/stable Home containment.
+
+## v1.7 R2/R3 stabilization - 2026-08-26
+
+- Fixed background pause lifecycle: paused loaded tracks remain resumable through tray/QS/MPRIS instead of triggering process exit.
+- Removed eager Home continuation crawling and community search enrichment that could cause intermittent visible-idle CPU spikes.
+- Made Familiar Artists demand-proximate with bounded two-at-a-time loading and reduced hero decode size.
+- Slowed fallback Ryoku palette polling while retaining immediate focus/visibility refresh.
+- Added managed Ryoku replacement packaging so the public launcher is singular while `ryoku-desktop` itself remains installed and recoverable.
+
+## v1.6 - 2026-08-26
+
+- Added Linux main-WebKit hibernation during background playback and automatic idle process shutdown when no UI/audio remains.
+- Restored stable R4 Home layout; removed the v1.5 mount/unmount virtualization that caused scrolling bounce and renderer churn.
+- Reduced background transport cadence and removed healthy-path transport-watchdog wakeups.
+- Tightened browse/artwork/speculative-work budgets without destroying and recreating Home sections.
+- Refined pointer queue reordering with insertion gaps, edge auto-scroll and click suppression.
+- Fixed Lyrics footer/source/timing controls clipping at short and floating window heights.
+- Preserved R4 account-menu, artist-artwork, playback-progress, scrollbar and low-cost visualizer fixes.
+
+## v1.4 - 2026-08-25
+
+- Maintenance release 2: removed the permanent frontend transport clock, made PoToken helpers demand-driven, tightened helper teardown, reduced artwork-accent work and simplified touchpad fallback ownership.
+- Fixed account popover overlap at titlebar scaling and Familiar Artists hero artwork flicker.
+- Fixed lyric auto-follow scrollbar flashing and horizontal overflow.
+- Added smooth playback-position rendering with stale-event recovery from mpv.
+- Removed the Home back-to-top overlay.
+- Restored a lightweight playback-state visualizer without a JavaScript analyser loop.
+- Renamed the public release line to v1.4 and cleaned release/package metadata.
+
+## V23 - 2026-08-25
+
+- Unified playlist metadata grid, deterministic/failure-safe playlist heroes and smart-playlist identities.
+- Unified ranked local search and refined Add Shortcut/Queue/list search surfaces.
+- Settings Keybinds reference driven from the live shortcut registry.
+- App-wide non-document selection behaviour with editable fields preserved.
+- Memory pass: smaller bounded caches, smaller decoded artwork requests and open-only heavy overlays.
+- Preserves V22 audio-only/native playback, low-resource mode, touchpad and responsive-layout behaviour.
+
+## V22 - 2026-08-25
+
+- Added Low resource mode, queue search and Stop after current.
+- Added Recently Played / Rediscover smart playlists and on-demand Listening Insights.
+- Added per-track lyric timing correction plus low-cost next-track lyric prefetch.
+- Added portable playlist JSON import/export and optional Quickshell/MPRIS widget.
+- Preserved V21 responsive/touchpad/audio-only fixes and tightened resource invariants.
+
+## V21 Final - 2026-08-25
+
+- Fixed Home search suggestion clipping/stacking, shallow-window layout and visible mood-chip scrollbar.
+- Restored native two-finger touchpad ownership; the WebKit fallback now intervenes only if native pixel scrolling does not move.
+- Replaced the ambiguous interlocking Open Link glyph with one authored external-link mark.
+- Rebuilt the seek rail as a static SVG waveform + straight remainder while preserving native click/drag/keyboard seeking.
+- Reduced playback render wakeups: word-synced lyrics are bounded to 30 Hz, active-line lookup is binary, deep Home shelves use content visibility and the last regular-playback backdrop blur is gone.
+- Backported authoritative Like-state refresh and private-upload stream validation fix.
+- Added artwork accent caching/prewarming and targeted blurred-artwork compositor promotion.
+- Added consistent contextual menus to Home tiles.
+- Kept the application strictly audio-only.
+
+
+## 20.0.0 - 2026-08-24
+
+V20 is the release-candidate cleanup pass. It keeps the recovered V18/V19 Now Playing geometry frozen, adds global peel-by-peel Escape navigation toward Home, synchronizes Lyrics Focus with the global transient-state stack, and removes obsolete version-scoped release wiring. The seven V19 craft fixes remain intact.
+
+## 19.0.0 - 2026-08-24
+
+V19 is a focused craft/stability release: the recovered Now Playing geometry is frozen while seven interaction and rendering defects are corrected.
+
+- Preserve square audio artwork without stretching.
+- Remove the dead Lyrics/Lyrics Focus right-hand lane.
+- Play Quick Results songs directly on row click.
+- Replace the malformed Open Link toolbar glyph with stable chain geometry.
+- Escape returns Search/Library to Home after transient surfaces close.
+- Remove filled hover background from dialog close buttons.
+
+## 18.0.0 - 2026-08-24
+
+V18 is the restoration release: it keeps the V17 reliability work, but replaces the unstable V17 Now Playing geometry with an isolated layout derived from the proven V14/Ryowalls composition.
+
+### Now Playing restoration
+
+- Rebuilt Now Playing with isolated V18 classes so legacy V17 layout overrides cannot fight its geometry.
+- Restored the V14/Ryowalls-style 5/12 media + 7/12 Queue/Lyrics split on wide desktops.
+- Bounded audio artwork to a calm square media plate and gave music video its own contained 16:9 surface.
+- Preserved the current playback/video-sync logic while removing the layout paths that produced giant artwork, dead gutters, page leakage and unstable queue widths.
+- Queue and Lyrics share one stable detail lane; Lyrics Focus is a dedicated single-lane focus mode.
+- Collapsed and expanded sidebar states keep the same Now Playing composition.
+- At narrow desktop widths the media preview yields to the detail lane instead of overflowing the viewport.
+
+### Ryoku interface hardening
+
+- Left-aligned Settings with the rest of sidebar navigation.
+- Kept the native Hugeicons Open Link glyph rather than the malformed custom chain mark.
+- Preserved the corrected bone-on-ink Play/Pause hover/active treatment.
+- Preserved aspect-aware Ryoku editorial art for Search, Library, Data & Storage and About.
+- Preserved the redundant-sidebar-search removal, refined Search workspace and authenticated Library artwork path.
+- Preserved V15-style atmospheric line motion with reduced-motion support.
+
+### Reliability retained from V17
+
+- centralized queue/lyrics ownership;
+- route scroll restoration;
+- duplicate playback-request protection and resolving state;
+- Home first-paint deferral for non-critical enrichment;
+- WebKitGTK video paint-containment fix;
+- unified overlay stage and route recovery UI;
+- current-line recovery for manually scrolled lyrics.
+
+### Release gate
+
+Run `scripts/release-check.sh`, then `pnpm check`, `pnpm build`, `cargo check --workspace`, `cargo test --workspace`, and `cargo tauri build --no-bundle` on the target Ryoku/Arch machine. Finish with a real visual regression pass covering Home, Search, Library, Settings, Now Playing audio/video, Queue, Lyrics and sidebar collapse/expand.
+
+## Build hotfix
+
+- Restored the typed `showMenu` and `contextMenu` TrackRow props used by compact QueueList/mini-player menu suppression. This fixes the v2.1 FINAL `svelte-check` failure reported during the native build gate.

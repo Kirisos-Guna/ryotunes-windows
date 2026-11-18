@@ -1,0 +1,20 @@
+Bundled third-party programs
+============================
+
+libmpv-2.dll
+  mpv media player library, built by shinchiro/mpv-winbuild-cmake
+  (release 20261111, mpv git bcde6b93cc).
+  Licence: GPL-2.0-or-later (this build includes GPL components).
+  Source: https://github.com/mpv-player/mpv
+  Build recipe: https://github.com/shinchiro/mpv-winbuild-cmake
+
+tools\yt-dlp.exe
+  yt-dlp 2026.10.26.
+  Licence: The Unlicense (public domain).
+  Source: https://github.com/yt-dlp/yt-dlp
+
+third_party/go-librespot (compiled into ryotunesd.exe)
+  github.com/devgianlu/go-librespot v0.10.5, GPL-3.0, vendored with pure-Go
+  stubs for its FLAC, MP3 and Vorbis decoders so the program builds without
+  CGO. Ryotunes plays Spotify audio through libmpv, so those decoders are not
+  used. Source and changes: third_party/go-librespot in this repository.

@@ -1,0 +1,30 @@
+# Build output
+/bin/
+/dist/
+/release/arch/pkg/
+/release/arch/src/
+/release/arch/*.log
+/release/arch/*.pkg.tar.*
+/*.pkg.tar.*
+/ryotunes-v*-source.tar.gz
+
+# Local runtime state
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+*.png.tmp
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local environment / credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Windows runtime binaries (libmpv, yt-dlp) fetched by build-windows.ps1
+/third_party-bin/

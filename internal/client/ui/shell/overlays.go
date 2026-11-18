@@ -1,0 +1,74 @@
+package shell
+
+import (
+	"context"
+
+	"gioui.org/layout"
+
+	"github.com/ryoku-dev/ryotunes/internal/client/ui/env"
+	"github.com/ryoku-dev/ryotunes/internal/model"
+	"github.com/ryoku-dev/ryotunes/internal/protocol"
+)
+
+func (s *uiShell) layoutOverlays(gtx layout.Context, e *env.Env) {
+	requested := s.sidebar.ConsumeNewPlaylistRequest()
+	if s.sidebarSheet.ConsumeNewPlaylistRequest() {
+		requested = true
+	}
+	if requested {
+		s.sidebar.OpenNewPlaylistDialog()
+	}
+	s.sidebar.LayoutDialogs(gtx, e)
+	s.itemMenu.LayoutDialogs(gtx, e)
+	s.layoutConfirm(gtx, e)
+	placardContext := gtx
+	if !s.currentMini && s.overlayBottom > 0 {
+		height := min(gtx.Constraints.Max.Y, s.overlayBottom)
+		placardContext.Constraints.Min.Y = height
+		placardContext.Constraints.Max.Y = height
+	}
+	s.placards.Layout(placardContext, e.Th.Theme)
+	s.notices.act(gtx, &s.placards)
+	s.overlays.Layout(gtx, e.Th)
+}
+
+func (s *uiShell) layoutConfirm(gtx layout.Context, e *env.Env) {
+	request := s.confirmReq
+	if request == nil {
+		return
+	}
+	if s.confirm.Layout(gtx, e.Th.Theme, request.title, request.body, request.action, request.required) {
+		run := request.run
+		s.confirmReq = nil
+		if run != nil {
+			run()
+		}
+	}
+	if s.confirm.Closed() {
+		s.confirmReq = nil
+	}
+}
+
+func (s *uiShell) callNull(e *env.Env, method string) {
+	s.call(e, method, protocol.Null{})
+}
+
+func (s *uiShell) call(e *env.Env, method string, params any) {
+	e.Go(func(ctx context.Context) {
+		if err := e.Conn.Call(ctx, method, params, nil); err != nil {
+			e.Toast(err.Error(), env.ToastError)
+		}
+	})
+}
+
+func (s *uiShell) cycleRepeat(e *env.Env) {
+	mode := e.Store.Snapshot().Queue.Repeat
+	next := model.RepeatAll
+	switch mode {
+	case model.RepeatAll:
+		next = model.RepeatOne
+	case model.RepeatOne:
+		next = model.RepeatOff
+	}
+	s.call(e, protocol.MethodSetRepeat, protocol.SetRepeatParams{Mode: next})
+}

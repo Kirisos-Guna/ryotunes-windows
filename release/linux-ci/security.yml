@@ -1,0 +1,44 @@
+name: Security audit
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - '**/*.go'
+      - .github/workflows/security.yml
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libwayland-dev libx11-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libffi-dev libxcursor-dev libvulkan-dev \
+            libasound2-dev libflac-dev libmpg123-dev libmpv-dev libvorbis-dev libogg-dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Audit Go dependency graph
+        run: govulncheck ./...

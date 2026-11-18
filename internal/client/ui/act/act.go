@@ -1,0 +1,427 @@
+// Package act provides non-blocking daemon actions shared by client surfaces.
+package act
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"regexp"
+	"strings"
+	"sync"
+
+	"gioui.org/io/clipboard"
+	"gioui.org/layout"
+	"gioui.org/op"
+
+	"github.com/ryoku-dev/ryotunes/internal/client/conn"
+	"github.com/ryoku-dev/ryotunes/internal/client/ui/env"
+	"github.com/ryoku-dev/ryotunes/internal/model"
+	"github.com/ryoku-dev/ryotunes/internal/protocol"
+	"github.com/ryoku-dev/ryotunes/internal/spawn"
+)
+
+var pending struct {
+	sync.Mutex
+	frame     []func()
+	clipboard []string
+}
+
+func dispatch(fn func()) {
+	if fn == nil {
+		return
+	}
+	pending.Lock()
+	pending.frame = append(pending.frame, fn)
+	pending.Unlock()
+}
+
+func toast(e *env.Env, message string, kind env.ToastKind) {
+	if e != nil && e.Toast != nil && message != "" {
+		e.Toast(message, kind)
+	}
+}
+
+func resultToast(e *env.Env, success string) func(protocol.Null, error) {
+	return func(_ protocol.Null, err error) {
+		if err != nil {
+			toast(e, err.Error(), env.ToastError)
+			return
+		}
+		toast(e, success, env.ToastSuccess)
+	}
+}
+
+// Call runs one typed daemon call off the frame goroutine and delivers its result on a later frame.
+func Call[R any](e *env.Env, method string, params any, done func(R, error)) {
+	if e == nil || e.Conn == nil || e.Go == nil {
+		var zero R
+		if done != nil {
+			dispatch(func() { done(zero, fmt.Errorf("daemon connection is not available")) })
+		}
+		return
+	}
+	e.Go(func(ctx context.Context) {
+		result, err := conn.Do[any, R](ctx, e.Conn, method, params)
+		if done != nil {
+			dispatch(func() { done(result, err) })
+		}
+	})
+}
+
+// OpenURL dispatches a browser handoff outside the frame goroutine.
+func OpenURL(e *env.Env, rawURL string) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return
+	}
+	if e == nil || e.Go == nil {
+		toast(e, "Could not open your browser", env.ToastError)
+		return
+	}
+	e.Go(func(ctx context.Context) {
+		if err := spawn.Command(ctx, "xdg-open", rawURL).Run(); err != nil {
+			toast(e, "Could not open your browser", env.ToastError)
+		}
+	})
+}
+
+// OpenAuthURLs opens newly published event URLs exactly once per provider.
+func OpenAuthURLs(e *env.Env) {
+	if e == nil || e.Store == nil {
+		return
+	}
+	snapshot := e.Store.Snapshot()
+	for _, provider := range [...]model.Provider{
+		model.ProviderYouTube,
+		model.ProviderSpotify,
+		model.ProviderSoundCloud,
+		model.ProviderTidal,
+	} {
+		url := snapshot.AuthFlows[provider].URL
+		if e.Store.ClaimAuthURL(provider, url) {
+			OpenURL(e, url)
+		}
+	}
+}
+
+// SignIn starts one provider's authorization flow and opens its browser URL.
+func SignIn(e *env.Env, provider model.Provider) {
+	if e == nil || e.Store == nil {
+		toast(e, "Daemon connection is not available", env.ToastError)
+		return
+	}
+	switch provider {
+	case model.ProviderYouTube:
+		Call[protocol.AuthFlowResult](e, protocol.MethodSignIn, protocol.Null{}, func(result protocol.AuthFlowResult, err error) {
+			finishAuthStart(e, provider, result.URL, err)
+		})
+	case model.ProviderSoundCloud:
+		Call[protocol.AuthFlowResult](e, protocol.MethodSoundCloudSignIn, protocol.Null{}, func(result protocol.AuthFlowResult, err error) {
+			finishAuthStart(e, provider, result.URL, err)
+		})
+	case model.ProviderSpotify:
+		e.Store.BeginAuthFlow(provider)
+		Call[protocol.StartedResult](e, protocol.MethodSpotifySignIn, protocol.Null{}, func(_ protocol.StartedResult, err error) {
+			finishStartedAuth(e, provider, err)
+		})
+	case model.ProviderTidal:
+		e.Store.BeginAuthFlow(provider)
+		Call[protocol.StartedResult](e, protocol.MethodTidalSignIn, protocol.Null{}, func(_ protocol.StartedResult, err error) {
+			finishStartedAuth(e, provider, err)
+		})
+	default:
+		toast(e, "This provider does not require sign in", env.ToastInfo)
+	}
+}
+
+func finishAuthStart(e *env.Env, provider model.Provider, url string, err error) {
+	if err != nil {
+		e.Store.SetAuthFlowError(provider, err.Error())
+		toast(e, err.Error(), env.ToastError)
+		return
+	}
+	e.Store.SetAuthFlow(provider, url, "")
+	if e.Store.ClaimAuthURL(provider, url) {
+		OpenURL(e, url)
+	}
+}
+
+func finishStartedAuth(e *env.Env, provider model.Provider, err error) {
+	if err == nil {
+		return
+	}
+	e.Store.SetAuthFlowError(provider, err.Error())
+	toast(e, err.Error(), env.ToastError)
+}
+
+// Play starts one track.
+func Play(e *env.Env, t model.Track) {
+	Call[protocol.Null](e, protocol.MethodPlay, protocol.PlayParams{Item: t}, resultToast(e, ""))
+}
+
+// PlayCollection replaces the queue with a collection and starts at the requested row.
+func PlayCollection(e *env.Env, items []model.Track, start int, sourceID, sourceName string, shuffle bool, continuation *string) {
+	items = append([]model.Track(nil), items...)
+	params := protocol.PlayPlaylistParams{Items: items, Start: &start, Shuffle: &shuffle, Continuation: continuation}
+	if sourceID != "" {
+		params.SourceID = &sourceID
+	}
+	if sourceName != "" {
+		params.SourceName = &sourceName
+	}
+	Call[protocol.Null](e, protocol.MethodPlayPlaylist, params, resultToast(e, ""))
+}
+
+func queueContext(from string) *model.QueueContext {
+	if from == "" {
+		return nil
+	}
+	value := model.QueueContext(from)
+	return &value
+}
+
+// AddToQueue appends tracks to the manual queue.
+func AddToQueue(e *env.Env, items []model.Track, from string) {
+	items = append([]model.Track(nil), items...)
+	Call[protocol.Null](e, protocol.MethodAddToQueue, protocol.AddToQueueParams{Items: items, From: queueContext(from)}, resultToast(e, "Added to queue"))
+}
+
+// PlayNext inserts tracks after the current row.
+func PlayNext(e *env.Env, items []model.Track, from string) {
+	items = append([]model.Track(nil), items...)
+	Call[protocol.Null](e, protocol.MethodPlayNext, protocol.PlayNextParams{Items: items, From: queueContext(from)}, resultToast(e, "Playing next"))
+}
+
+// StartRadio starts provider radio from an entity.
+func StartRadio(e *env.Env, kind, id, name string) {
+	params := protocol.StartRadioParams{Kind: kind, ID: id}
+	if name != "" {
+		params.Name = &name
+	}
+	Call[protocol.Null](e, protocol.MethodStartRadio, params, resultToast(e, "Radio started"))
+}
+
+// Rate changes a track rating.
+func Rate(e *env.Env, t model.Track, rating model.Rating) {
+	Call[protocol.Null](e, protocol.MethodRate, protocol.RateParams{VideoID: t.VideoID, Rating: rating}, resultToast(e, ""))
+}
+
+// Download queues one track for download.
+func Download(e *env.Env, t model.Track) {
+	artists := t.Artists
+	Call[protocol.Null](e, protocol.MethodEnqueueDownload, protocol.EnqueueDownloadParams{
+		VideoID: t.VideoID, Title: t.Title, Artists: &artists, Thumbnail: t.Thumbnail,
+	}, resultToast(e, "Download queued"))
+}
+
+// DownloadCollection queues every track in a collection for download.
+func DownloadCollection(e *env.Env, title string, items []model.Track) {
+	entries := make([]model.DownloadCollectionEntry, 0, len(items))
+	collection := title
+	for _, item := range items {
+		thumbnail := ""
+		if item.Thumbnail != nil {
+			thumbnail = *item.Thumbnail
+		}
+		entries = append(entries, model.DownloadCollectionEntry{
+			VideoID: item.VideoID, Title: item.Title, Artists: item.Artists,
+			Thumbnail: thumbnail, Collection: &collection,
+		})
+	}
+	Call[model.DownloadCollectionResult](e, protocol.MethodEnqueueCollection, protocol.EnqueueCollectionParams{Entries: entries}, func(_ model.DownloadCollectionResult, err error) {
+		if err != nil {
+			toast(e, err.Error(), env.ToastError)
+			return
+		}
+		toast(e, "Downloads queued", env.ToastSuccess)
+	})
+}
+
+var (
+	cardDurationFact = regexp.MustCompile(`^\d{1,2}:\d{2}(:\d{2})?$`)
+	cardYearFact     = regexp.MustCompile(`^\d{4}$`)
+	cardCountFact    = regexp.MustCompile(`(?i)^\d+(\.\d+)?[kmb]?\s+(plays?|views?|songs?|tracks?|episodes?|subscribers?|monthly listeners?)$`)
+)
+
+func cardKindFact(value string) bool {
+	switch strings.ToLower(value) {
+	case "song", "video", "single", "ep", "album", "episode", "podcast", "playlist", "artist":
+		return true
+	default:
+		return false
+	}
+}
+
+func cardSubtitleFields(subtitle string) (artists, duration string) {
+	for _, raw := range strings.Split(subtitle, "•") {
+		fact := strings.TrimSpace(raw)
+		switch {
+		case fact == "", cardKindFact(fact), cardYearFact.MatchString(fact), cardCountFact.MatchString(fact):
+			continue
+		case cardDurationFact.MatchString(fact):
+			if duration == "" {
+				duration = fact
+			}
+		default:
+			if artists == "" {
+				artists = fact
+			} else {
+				artists += ", " + fact
+			}
+		}
+	}
+	return artists, duration
+}
+
+// TrackFromCard preserves track identity while removing presentation facts from card subtitles.
+func TrackFromCard(card model.BrowseItem) model.Track {
+	artists := make([]string, 0, len(card.ArtistRuns))
+	for _, artist := range card.ArtistRuns {
+		if name := strings.TrimSpace(artist.Text); name != "" {
+			artists = append(artists, name)
+		}
+	}
+	subtitleArtists, subtitleDuration := cardSubtitleFields(value(card.Subtitle))
+	artistText := strings.Join(artists, ", ")
+	if artistText == "" {
+		artistText = subtitleArtists
+	}
+	duration := card.Duration
+	if duration == nil || strings.TrimSpace(*duration) == "" {
+		if subtitleDuration != "" {
+			duration = &subtitleDuration
+		}
+	}
+	return model.Track{
+		VideoID: card.ID, Title: card.Title, Artists: artistText, ArtistRuns: card.ArtistRuns,
+		Duration: duration, Thumbnail: card.Thumbnail, PlayCount: card.PlayCount,
+		IsVideo: card.IsVideo, IsUpload: card.IsUpload, Explicit: card.Explicit, Rating: card.Rating,
+	}
+}
+
+func value(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// OpenCard routes a collection card or plays a song card.
+func OpenCard(e *env.Env, c model.BrowseItem) {
+	if e == nil {
+		return
+	}
+	switch strings.ToLower(c.Kind) {
+	case "song", "track", "video":
+		Play(e, TrackFromCard(c))
+	case "artist", "channel", "user":
+		OpenArtist(e, c.ID, c.Title)
+	case "album", "single", "ep":
+		OpenAlbum(e, c.ID, c.Title)
+	case "playlist", "mix":
+		if e.Nav != nil {
+			e.Nav.Push(env.Route{Kind: env.RoutePlaylist, ID: c.ID, Title: c.Title})
+		}
+	default:
+		if e.Nav != nil {
+			e.Nav.Push(env.Route{Kind: env.RouteList, ID: c.ID, Title: c.Title})
+		}
+	}
+}
+
+// OpenArtist routes to an artist detail page.
+func OpenArtist(e *env.Env, id, name string) {
+	if e != nil && e.Nav != nil {
+		e.Nav.Push(env.Route{Kind: env.RouteArtist, ID: id, Title: name})
+	}
+}
+
+// OpenAlbum routes to an album detail page.
+func OpenAlbum(e *env.Env, id, title string) {
+	if e != nil && e.Nav != nil {
+		e.Nav.Push(env.Route{Kind: env.RouteAlbum, ID: id, Title: title})
+	}
+}
+
+// AddToPlaylist adds a track to a provider or device playlist.
+func AddToPlaylist(e *env.Env, playlistID string, t model.Track) {
+	if strings.HasPrefix(playlistID, model.LocalPlaylistPrefix) {
+		Call[protocol.Null](e, protocol.MethodAddToLocalPlaylist, protocol.AddToLocalPlaylistParams{PlaylistID: playlistID, Item: t}, resultToast(e, "Added to playlist"))
+		return
+	}
+	Call[protocol.Null](e, protocol.MethodAddToPlaylist, protocol.PlaylistTrackParams{PlaylistID: playlistID, VideoID: t.VideoID}, resultToast(e, "Added to playlist"))
+}
+
+// RemoveFromPlaylist removes a track from a provider or device playlist.
+func RemoveFromPlaylist(e *env.Env, playlistID string, t model.Track) {
+	Call[protocol.Null](e, protocol.MethodRemoveFromPlaylist, protocol.RemoveFromPlaylistParams{
+		PlaylistID: playlistID, VideoID: t.VideoID, SetVideoID: t.SetVideoID,
+	}, resultToast(e, "Removed from playlist"))
+}
+
+// CopyText queues plain text for Gio's next clipboard command.
+func CopyText(e *env.Env, text, success string) {
+	if text == "" {
+		toast(e, "Nothing to copy", env.ToastError)
+		return
+	}
+	pending.Lock()
+	pending.clipboard = append(pending.clipboard, text)
+	pending.Unlock()
+	toast(e, success, env.ToastSuccess)
+}
+
+// CopyLink queues a provider share URL for the next frame's clipboard command.
+func CopyLink(e *env.Env, t model.Track) {
+	link := shareURL(t)
+	if link == "" {
+		toast(e, "This item has no share link", env.ToastError)
+		return
+	}
+	CopyText(e, link, "Link copied")
+}
+
+func shareURL(t model.Track) string {
+	id := t.VideoID
+	switch model.ProviderOf(id) {
+	case model.ProviderSpotify:
+		id = strings.TrimPrefix(id, "spotify:track:")
+		id = strings.TrimPrefix(id, "spotify:")
+		return "https://open.spotify.com/track/" + id
+	case model.ProviderSoundCloud:
+		if strings.HasPrefix(id, "https://soundcloud.com/") || strings.HasPrefix(id, "https://www.soundcloud.com/") {
+			return id
+		}
+		if strings.HasPrefix(id, "sc:system:") {
+			return "https://soundcloud.com/" + strings.TrimPrefix(id, "sc:system:")
+		}
+		return ""
+	case model.ProviderTidal:
+		id = strings.TrimPrefix(id, "tidal:track:")
+		id = strings.TrimPrefix(id, "tidal:")
+		return "https://tidal.com/browse/track/" + id
+	case model.ProviderYouTube:
+		return "https://music.youtube.com/watch?v=" + id
+	default:
+		return ""
+	}
+}
+
+// PendingClipboard delivers queued callbacks and clipboard writes during a frame.
+func PendingClipboard(gtx layout.Context) {
+	pending.Lock()
+	frame := pending.frame
+	texts := pending.clipboard
+	pending.frame = nil
+	pending.clipboard = nil
+	pending.Unlock()
+	for _, fn := range frame {
+		fn()
+	}
+	for _, text := range texts {
+		gtx.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(text))})
+	}
+	if len(frame) > 0 || len(texts) > 0 {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+}

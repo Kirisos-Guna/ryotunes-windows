@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential desktop-file-utils pkg-config \
+            libwayland-dev libx11-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libffi-dev libxcursor-dev libvulkan-dev \
+            libasound2-dev libflac-dev libmpg123-dev libmpv-dev libvorbis-dev libogg-dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Build binaries
+        run: |
+          CGO_ENABLED=0 go build -trimpath ./cmd/ryotunes-cli ./cmd/ryotunes-sync
+          CGO_ENABLED=1 go build -trimpath -buildmode=pie ./cmd/ryotunes ./cmd/ryotunesd
+      - name: Release checks
+        run: ./release/check.sh
