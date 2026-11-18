@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	connectpb "github.com/devgianlu/go-librespot/proto/spotify/connectstate"
 	playlist4pb "github.com/devgianlu/go-librespot/proto/spotify/playlist4"
+	"github.com/devgianlu/go-librespot/session"
 	"github.com/devgianlu/go-librespot/spclient"
 	"github.com/ryoku-dev/ryotunes/internal/model"
 	providerapi "github.com/ryoku-dev/ryotunes/internal/provider"
@@ -22,12 +25,16 @@ import (
 // Playlist implements provider.Provider.
 func (p *Spotify) Playlist(ctx context.Context, id string, ordering model.PlaylistSort, desc bool) (model.PlaylistPage, error) {
 	if id == "spotify:playlist:liked" || id == "liked" {
-		library, err := p.Library(ctx)
+		sess, err := p.session(ctx)
 		if err != nil {
 			return model.PlaylistPage{}, err
 		}
+		liked, err := p.likedTracks(ctx, sess)
+		if err != nil {
+			return model.PlaylistPage{}, mapProviderError(err)
+		}
 		title := "Liked Songs"
-		return model.PlaylistPage{Title: &title, Items: library.Liked, Owned: true}, nil
+		return model.PlaylistPage{Title: &title, Items: liked, Owned: true}, nil
 	}
 	bare, err := bareID(id, "playlist")
 	if err != nil {
@@ -162,16 +169,32 @@ func (p *Spotify) Library(ctx context.Context) (model.Library, error) {
 		return model.Library{}, err
 	}
 	library := model.Library{}
-	tracks, err := p.webSavedTracks(ctx, sess)
-	if err != nil {
-		return library, mapProviderError(err)
+	tracks, likedErr := p.likedTracks(ctx, sess)
+	if likedErr == nil {
+		library.Liked = tracks
+	} else {
+		p.log.Warn("Spotify liked songs failed", "error", likedErr)
 	}
-	library.Liked = tracks
 	root, err := sess.Spclient().Rootlist(ctx, sess.Username(), 0, 10000)
 	if err == nil {
 		library.Playlists = mapRootlist(root)
+		// Own playlists name their owner by account ID; show the name.
+		p.mu.RLock()
+		name := p.name
+		p.mu.RUnlock()
+		if name != "" {
+			for index := range library.Playlists {
+				if subtitle := library.Playlists[index].Subtitle; subtitle != nil && *subtitle == sess.Username() {
+					library.Playlists[index].Subtitle = new(name)
+				}
+			}
+		}
 	} else {
 		p.log.Warn("Spotify rootlist failed", "error", err)
+		if likedErr != nil {
+			// Nothing of the library loaded: report why.
+			return library, mapProviderError(likedErr)
+		}
 	}
 	albums, err := p.webSavedAlbums(ctx, sess)
 	if err == nil {
@@ -244,6 +267,68 @@ type webTrack struct {
 	Album    webAlbum    `json:"album"`
 	Duration int64       `json:"duration_ms"`
 	Explicit bool        `json:"explicit"`
+}
+
+// likedTracks lists Liked Songs, newest first. It reads the collection
+// through Spotify's client API (the context resolver and batched metadata,
+// as the playlists do), which is not subject to the public Web API's tight
+// rate limit for librespot's shared client ID: that limit answered 429 and
+// left the Liked Songs page empty. The Web API remains the fallback.
+func (p *Spotify) likedTracks(ctx context.Context, sess *session.Session) ([]model.Track, error) {
+	tracks, err := p.collectionTracks(ctx, sess)
+	if err == nil {
+		return tracks, nil
+	}
+	if errors.Is(err, errEmptyCollection) {
+		return []model.Track{}, nil
+	}
+	p.log.Warn("Spotify collection context failed, using the Web API", "error", err)
+	return p.webSavedTracks(ctx, sess)
+}
+
+var errEmptyCollection = errors.New("Spotify collection is empty")
+
+func (p *Spotify) collectionTracks(ctx context.Context, sess *session.Session) ([]model.Track, error) {
+	uri := "spotify:user:" + sess.Username() + ":collection"
+	resolver, err := spclient.NewContextResolver(ctx, p.liblog, sess.Spclient(), &connectpb.Context{Uri: uri})
+	if err != nil {
+		if strings.Contains(err.Error(), "has no tracks") {
+			return nil, errEmptyCollection
+		}
+		return nil, err
+	}
+	var uris []string
+	seen := map[string]bool{}
+	for index := 0; ; index++ {
+		page, err := resolver.Page(ctx, index)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, track := range page {
+			trackURI := track.GetUri()
+			if strings.HasPrefix(trackURI, "spotify:track:") && !seen[trackURI] {
+				seen[trackURI] = true
+				uris = append(uris, trackURI)
+			}
+		}
+	}
+	if len(uris) == 0 {
+		return []model.Track{}, nil
+	}
+	known, err := p.trackMetadata(ctx, sess, uris)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.Track, 0, len(uris))
+	for _, trackURI := range uris {
+		if track, ok := known[trackURI]; ok {
+			out = append(out, track)
+		}
+	}
+	return out, nil
 }
 
 func (p *Spotify) webSavedTracks(ctx context.Context, sess spotifySession) ([]model.Track, error) {
@@ -320,25 +405,52 @@ func (p *Spotify) webSavedArtists(ctx context.Context, sess spotifySession) ([]m
 
 type spotifySession interface{ Spclient() *spclient.Spclient }
 
+// webRetryLimit is the longest Retry-After webJSON waits out; a longer
+// rate-limit window is reported instead of holding the page open.
+const webRetryLimit = 10 * time.Second
+
 func (p *Spotify) webJSON(ctx context.Context, sess spotifySession, endpoint string, target any) error {
+	for attempt := 0; ; attempt++ {
+		wait, err := p.webJSONOnce(ctx, sess, endpoint, target)
+		if wait == 0 {
+			return err
+		}
+		if attempt >= 2 || wait > webRetryLimit {
+			return fmt.Errorf("Spotify is limiting requests right now. Try again in %s.", wait.Round(time.Second))
+		}
+		p.log.Warn("Spotify Web API rate limited, retrying", "wait", wait)
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// webJSONOnce makes one request; a positive wait means Spotify answered 429
+// and asks to be called again after it.
+func (p *Spotify) webJSONOnce(ctx context.Context, sess spotifySession, endpoint string, target any) (time.Duration, error) {
 	token, err := sess.Spclient().GetAccessToken(ctx, false)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := p.http.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return retryAfter(resp.Header.Get("Retry-After"), time.Now()), nil
+	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return providerapi.ErrSignInRequired
+		return 0, providerapi.ErrSignInRequired
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Spotify Web API status %d", resp.StatusCode)
+		return 0, fmt.Errorf("Spotify Web API status %d", resp.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(target)
+	return 0, json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(target)
 }
 func mapWebTrack(raw webTrack) model.Track {
 	artists := make([]model.Artist, 0, len(raw.Artists))

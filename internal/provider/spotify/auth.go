@@ -198,7 +198,7 @@ func (p *Spotify) signIn(ctx context.Context, generation uint64) error {
 		return err
 	}
 	if profile.DisplayName == "" {
-		profile.DisplayName = sess.Username()
+		profile.DisplayName = p.clientDisplayName(ctx, sess)
 	}
 	p.authMu.Lock()
 	if generation != p.authGeneration || ctx.Err() != nil {
@@ -251,7 +251,7 @@ func (p *Spotify) restoreSession(ctx context.Context) (*session.Session, account
 		return nil, accountProfile{}, err
 	}
 	if profile.DisplayName == "" {
-		profile.DisplayName = sess.Username()
+		profile.DisplayName = p.clientDisplayName(ctx, sess)
 	}
 
 	p.mu.Lock()
