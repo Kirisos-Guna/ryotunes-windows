@@ -28,6 +28,9 @@ var defaultPathfinderHashes = map[string]string{
 	"searchAlbums":        "202cb3305e31e5a0767ba7925f28bd728cf8f8b0217e6da43909056071cd70e9",
 	"searchPlaylists":     "d520014e748f9ea44f7707d8df1819867ac1205e8b7f3e28f22fe5fc858921b1",
 	"browsePage":          "f5c4e6d668f5716464a231c1cc8b22c1cbf6ad68b09929fd7de813a30581298b",
+	// The personalized Home feed, from Myspoti's table of Web Player
+	// operations (base/api-spotify/src/main/resources/spotify/gql-ops.json).
+	"home": "5fb7da7a03ee2776c0670856609cb85a189a3cecc36cc160b91cde79063b9cf1",
 }
 
 type hashRegistry struct {
@@ -135,6 +138,9 @@ func (p *Spotify) pathfinderHash(ctx context.Context, operation, stale string) (
 		}
 		if hash := operations[operation]; saneHash(hash) {
 			return hash, true, nil
+		}
+		if hash := defaultPathfinderHashes[operation]; hash != "" {
+			return hash, false, nil
 		}
 		return "", true, fmt.Errorf("the hash registry has no %s query", operation)
 	}

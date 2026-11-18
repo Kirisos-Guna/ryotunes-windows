@@ -57,10 +57,12 @@ Spotify no longer gives librespot clients the keys to decrypt its audio
 Spotify's DRM. On Windows, Spotify tracks play in **Spotify's own Web
 Player** instead, the way Myspoti's desktop host does:
 
-- `internal/webplayer` starts Microsoft Edge (or Chrome) with its own
-  profile in `%LOCALAPPDATA%\Ryotunes\webplayer`, opens open.spotify.com,
+- `internal/webplayer` starts Brave (else Microsoft Edge or Chrome) with its
+  own profile in `%LOCALAPPDATA%\Ryotunes\spotify-player`, opens open.spotify.com,
   injects Myspoti's `player-bridge.js` and drives the page's player over the
-  Chrome DevTools Protocol. Edge's licensed Widevine module decrypts the audio,
+  Chrome DevTools Protocol. The browser's licensed Widevine module decrypts the
+  audio (Ryotunes opts its own Brave profile in to Widevine, which Brave keeps
+  off by default),
   and plays count for artists, history and Wrapped as in a browser.
 - The window stays shown but parked beyond the edge of every monitor as a tool
   window (off the taskbar and Alt+Tab): Chromium does not load media in a
@@ -73,7 +75,11 @@ Player** instead, the way Myspoti's desktop host does:
   effects do not apply to Spotify tracks.
 
 There are no ads on a Premium account. A free account hears Spotify's own ads,
-as in the Web Player.
+as in the Web Player, and Spotify may play another song than the one picked;
+the player follows what Spotify plays. Ryotunes adds no ad blocking of its own.
+
+The Spotify Home feed is the account's own (`home` query, run in the Web
+Player page, as Myspoti does; its hash comes from Myspoti's operation table).
 
 ## Myspoti extensions
 
@@ -92,11 +98,19 @@ or `settings.json` in the folder), `storage`, `log`/`console` and `util`.
 Other hooks load and are ignored. `internal/extensions/testdata` holds
 Myspoti's sample LRCLIB extension, run unchanged by the tests.
 
+## Visualizer and scrolling
+
+- The visualizer captures the default output device with WASAPI loopback
+  (`internal/client/spectrum/loopback_windows.go`) instead of cava and
+  pw-record, and computes the 64 spectrum bands itself (`analyzer.go`), so all
+  four styles work, for mpv and the Spotify Web Player alike.
+- The vendored Gio spreads classic mouse-wheel notches over a few frames
+  (`third_party/gioui/app/smoothscroll_windows.go`); touchpads are unchanged.
+
 ## Not available on Windows
 
 - MPRIS, media keys and the tray icon use D-Bus. The daemon logs that they are
   unavailable and carries on.
-- The spectrum visualiser reads PipeWire through `pw-record`/`cava`.
 - Ryoku desktop theming (matugen, Hyprland window rules).
 
 ## Tests

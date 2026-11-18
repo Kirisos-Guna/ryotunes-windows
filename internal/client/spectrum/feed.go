@@ -20,6 +20,9 @@ type Feed struct {
 
 func New(invalidate func()) *Feed {
 	path, _ := exec.LookPath("cava")
+	if path == "" && loopbackAvailable() {
+		path = loopbackSource // Windows: analyse the output device ourselves
+	}
 	feed := &Feed{cavaPath: path}
 	feed.capture = newCaptureLifecycle(path, invalidate, feed.start, nil)
 	return feed
@@ -70,6 +73,21 @@ func (f *Feed) Close() {
 }
 
 func (f *Feed) start() (*runningCapture, error) {
+	if f.cavaPath == loopbackSource {
+		analyzer := newAnalyzer()
+		return startLoopback(func(stereo []float32, rate int) {
+			now := time.Now()
+			levels, ok := analyzer.push(stereo, rate, now)
+			if !ok {
+				return
+			}
+			f.capture.Publish(now, func() {
+				f.mu.Lock()
+				f.levels = levels
+				f.mu.Unlock()
+			})
+		})
+	}
 	config, err := writeConfig(resolveSink())
 	if err != nil {
 		return nil, err

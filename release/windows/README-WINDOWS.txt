@@ -48,7 +48,7 @@ cannot read; sign in with a Firefox-family browser if import finds nothing.
 Spotify
 -------
 Spotify songs play in Spotify's own Web Player, which Ryotunes runs in a
-Microsoft Edge window you never see. The first time you play a Spotify song,
+Brave window you never see (Microsoft Edge if Brave is not installed). The first time you play a Spotify song,
 that window opens on Spotify's sign-in page: sign in once and it goes away.
 
 Extensions
@@ -60,7 +60,6 @@ folder (with manifest.json and main.js) into
 Linux-only features that are off on Windows
 -------------------------------------------
   - MPRIS / media keys and the system tray (they use D-Bus)
-  - The PipeWire spectrum visualiser
   - Ryoku desktop theming
 
 Updates

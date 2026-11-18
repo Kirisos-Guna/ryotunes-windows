@@ -34,6 +34,8 @@ type webSession struct {
 	ended   bool // EndOfFile was sent for it
 	volume  float64
 	started time.Time
+	lastPos float64 // our song's last position while it played, seconds
+	adSeen  bool    // an ad break ran since our song was requested
 }
 
 func (p *Player) webActive() bool {
@@ -66,6 +68,7 @@ func (p *Player) loadWeb(ctx context.Context, s model.Stream, startAt float64, p
 
 	p.web.mu.Lock()
 	p.web.active, p.web.uri, p.web.seen, p.web.ended = true, uri, false, false
+	p.web.lastPos, p.web.adSeen = 0, false
 	p.web.started = time.Now()
 	volume := p.web.volume
 	p.web.mu.Unlock()
@@ -132,16 +135,26 @@ func (p *Player) leaveWeb() {
 	go p.webCall("player.pause", nil)
 }
 
-// webOnTrack reports whether the page is on our track: false after the
-// browser restarted or the page reloaded, when it plays nothing.
+// webOnTrack reports whether the page is on our track, or in an ad break
+// before or after it: false after the browser restarted or the page
+// reloaded, when it plays nothing.
 func (p *Player) webOnTrack() bool {
 	if !p.web.engine.Running() {
 		return false
 	}
 	state := p.web.engine.State()
+	if isAd(state) {
+		return true
+	}
 	p.web.mu.Lock()
 	defer p.web.mu.Unlock()
 	return state.Track != nil && state.Track.URI == p.web.uri
+}
+
+// isAd reports Spotify playing an ad (a free account): part of playback,
+// neither our song ending nor the page losing it.
+func isAd(state webplayer.State) bool {
+	return state.Track != nil && state.Track.Kind == "ad"
 }
 
 // webReload plays our track again from the current position, for a page
@@ -208,6 +221,9 @@ func (p *Player) webToggle() error {
 
 // webSeek moves within our track, reloading it there when the page lost it.
 func (p *Player) webSeek(pos float64) error {
+	if isAd(p.web.engine.State()) {
+		return nil // an ad cannot be skipped through; the song starts after it
+	}
 	p.position.Store(math.Float64bits(pos))
 	if !p.webOnTrack() {
 		return p.webReload(!p.Paused())
@@ -226,12 +242,43 @@ func (p *Player) webCall(method string, args any) error {
 	return err
 }
 
+// webEnd ends our song once: the queue chooses what plays next, so the page
+// is paused before Spotify moves on (autoplay) or rewinds to 0:00.
+func (p *Player) webEnd() {
+	p.web.mu.Lock()
+	if p.web.ended || !p.web.active {
+		p.web.mu.Unlock()
+		return
+	}
+	p.web.ended = true
+	p.web.mu.Unlock()
+	go p.webCall("player.pause", nil)
+	p.emit(Event{Kind: EndOfFile})
+}
+
 // onWebState turns a page state into player events.
 func (p *Player) onWebState(state webplayer.State) {
 	p.web.mu.Lock()
 	if !p.web.active || state.Track == nil {
 		p.web.mu.Unlock()
 		return
+	}
+	if isAd(state) {
+		// Spotify's ad break (a free account): wait for our song.
+		p.web.adSeen = true
+		p.web.mu.Unlock()
+		if p.paused.Swap(state.IsPaused) != state.IsPaused {
+			p.emit(Event{Kind: PauseChanged, Paused: state.IsPaused})
+		}
+		return
+	}
+	// A free account may get another song than the one asked for, after an
+	// ad break or in its place. Follow what plays for our request, so
+	// position and its end still work.
+	requested := state.ContextURI == p.web.uri || p.web.adSeen
+	if state.Track.URI != p.web.uri && !p.web.seen && requested && state.Track.Kind == "track" {
+		p.log.Info("Spotify played another song after its ad break", "asked", p.web.uri, "playing", state.Track.URI)
+		p.web.uri = state.Track.URI
 	}
 	ours := state.Track.URI == p.web.uri
 	firstTime := ours && !p.web.seen
@@ -242,24 +289,30 @@ func (p *Player) onWebState(state webplayer.State) {
 	// autoplay or the context's next song), or stopped at its end.
 	ended := false
 	if p.web.seen && !p.web.ended {
-		atEnd := ours && state.IsPaused && state.DurationMs > 0 && state.Position(time.Now())*1000 >= state.DurationMs-1500
+		position := state.Position(time.Now())
+		atEnd := ours && state.IsPaused && state.DurationMs > 0 && position*1000 >= state.DurationMs-1500
+		// Spotify may rewind a finished single-song context to 0:00, paused.
+		duration := state.DurationMs / 1000
+		rewound := ours && state.IsPaused && duration > 0 && p.web.lastPos >= duration-4 && position < 3
+		atEnd = atEnd || rewound
 		// The page moved on from our song: its end only if the song was
 		// almost over. Otherwise the page reloaded or was used elsewhere;
 		// the next transport call plays our song again (webReload).
 		movedOn := !ours && p.Duration() > 0 && p.Position() >= p.Duration()-15
 		if atEnd || movedOn {
-			p.web.ended, ended = true, true
+			ended = true
 		} else if !ours {
 			p.web.seen = false
 		}
+	}
+	if ours && !state.IsPaused {
+		p.web.lastPos = state.Position(time.Now())
 	}
 	seen := p.web.seen
 	p.web.mu.Unlock()
 
 	if ended {
-		// Stop whatever the page moved on to: the queue chooses what plays next.
-		go p.webCall("player.pause", nil)
-		p.emit(Event{Kind: EndOfFile})
+		p.webEnd()
 		return
 	}
 	if !ours || !seen {
@@ -283,28 +336,40 @@ func (p *Player) onWebState(state webplayer.State) {
 // webTicker sends position events while the page plays, as mpv's time-pos
 // observer does.
 func (p *Player) webTicker() {
+	// Checked often enough to end a song on time; positions are sent at
+	// the player's cadence, as mpv's are.
+	const check = 100 * time.Millisecond
+	var lastEmit time.Time
 	for {
 		select {
 		case <-p.closed:
 			return
-		case <-time.After(time.Duration(p.cadence.Load())):
+		case <-time.After(check):
 		}
 		p.web.mu.Lock()
-		active, seen, ended := p.web.active, p.web.seen, p.web.ended
+		active, seen, ended, uri := p.web.active, p.web.seen, p.web.ended, p.web.uri
 		p.web.mu.Unlock()
 		if !active || !seen || ended {
 			continue
 		}
 		state := p.web.engine.State()
-		if state.Track == nil || state.IsPaused {
+		if state.Track == nil || state.Track.URI != uri || state.IsPaused {
 			continue
 		}
-		position := state.Position(time.Now())
+		now := time.Now()
+		position := state.Position(now)
 		p.position.Store(math.Float64bits(position))
-		p.emit(Event{Kind: Position, Position: position})
-		// A song that reached its end without a new page state.
-		if state.DurationMs > 0 && position*1000 >= state.DurationMs+1500 {
-			p.onWebState(webplayer.State{Track: state.Track, IsPaused: true, PositionMs: state.DurationMs, DurationMs: state.DurationMs})
+		p.web.mu.Lock()
+		p.web.lastPos = position
+		p.web.mu.Unlock()
+		if now.Sub(lastEmit) >= time.Duration(p.cadence.Load()) {
+			lastEmit = now
+			p.emit(Event{Kind: Position, Position: position})
+		}
+		// End the song ourselves just before Spotify does, so it never
+		// autoplays something else or rewinds to 0:00 first.
+		if state.DurationMs > 0 && position*1000 >= state.DurationMs-350 && !state.IsBuffering {
+			p.webEnd()
 		}
 	}
 }

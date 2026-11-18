@@ -3,12 +3,12 @@
 // Spotify no longer gives librespot clients the keys to decrypt its audio,
 // and Ryotunes does not circumvent Spotify's DRM. Like Myspoti's desktop
 // host, this package instead runs open.spotify.com in a browser the daemon
-// starts and hides (Microsoft Edge, whose licensed Widevine module decrypts
-// the audio), injects Myspoti's player bridge (player-bridge.js) and drives
+// starts and hides (Brave, else Microsoft Edge or Chrome, whose licensed
+// Widevine module decrypts the audio), injects Myspoti's player bridge (player-bridge.js) and drives
 // the page's own player through the Chrome DevTools Protocol. Plays count
 // for the artist and the listener exactly as in a browser.
 //
-// The browser keeps its own profile in %LOCALAPPDATA%\Ryotunes\webplayer:
+// The browser keeps its own profile in %LOCALAPPDATA%\Ryotunes\spotify-player:
 // the listener signs in to Spotify once, on Spotify's own page, in a window
 // the engine shows for that and hides again.
 package webplayer
@@ -55,6 +55,7 @@ type Track struct {
 // State is the page player's state as the bridge reports it.
 type State struct {
 	Track       *Track  `json:"track"`
+	ContextURI  string  `json:"contextUri"`
 	IsPaused    bool    `json:"isPaused"`
 	IsBuffering bool    `json:"isBuffering"`
 	PositionMs  float64 `json:"positionMs"`
@@ -110,7 +111,7 @@ func Default() *Engine {
 		if local == "" {
 			return
 		}
-		defaultEngine = &Engine{log: slog.Default(), profile: filepath.Join(local, "Ryotunes", "webplayer")}
+		defaultEngine = &Engine{log: slog.Default(), profile: filepath.Join(local, "Ryotunes", "spotify-player")}
 	})
 	return defaultEngine
 }
@@ -170,6 +171,9 @@ func (e *Engine) launch(ctx context.Context) error {
 	if err := os.MkdirAll(e.profile, 0o700); err != nil {
 		return err
 	}
+	if strings.EqualFold(filepath.Base(browser), "brave.exe") {
+		optInWidevine(e.profile)
+	}
 	portFile := filepath.Join(e.profile, "DevToolsActivePort")
 	_ = os.Remove(portFile)
 	args := []string{
@@ -181,6 +185,10 @@ func (e *Engine) launch(ctx context.Context) error {
 		"--disable-background-timer-throttling",
 		"--disable-renderer-backgrounding",
 		"--disable-backgrounding-occluded-windows",
+		// The window is parked out of sight and never focused: keep Chromium
+		// (and Windows' efficiency mode) from throttling it, which made the
+		// audio stutter.
+		"--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,UseEcoQoSForBackgroundProcess,msEfficiencyMode,msSleepingTabs",
 		"--hide-crash-restore-bubble",
 		"--window-size=1000,760",
 	}
@@ -313,8 +321,20 @@ func (e *Engine) message(payload string) {
 	}
 }
 
-// Call runs one bridge command and returns its JSON value.
+// Call runs one bridge command and returns its JSON value. While the
+// sign-in window is open, it answers ErrSignInRequired at once: Spotify's
+// sign-in page has no player to run commands.
 func (e *Engine) Call(ctx context.Context, method string, args any) (json.RawMessage, error) {
+	e.mu.Lock()
+	signingIn := e.shown
+	e.mu.Unlock()
+	if signingIn {
+		return nil, ErrSignInRequired
+	}
+	return e.call(ctx, method, args)
+}
+
+func (e *Engine) call(ctx context.Context, method string, args any) (json.RawMessage, error) {
 	if err := e.Start(ctx); err != nil {
 		return nil, err
 	}
@@ -362,7 +382,17 @@ func (e *Engine) Call(ctx context.Context, method string, args any) (json.RawMes
 
 // SignedIn reports whether the page has a Spotify account.
 func (e *Engine) SignedIn(ctx context.Context) (bool, error) {
-	raw, err := e.Call(ctx, "token.get", nil)
+	e.mu.Lock()
+	signingIn := e.shown
+	e.mu.Unlock()
+	if signingIn {
+		return false, nil
+	}
+	return e.signedIn(ctx)
+}
+
+func (e *Engine) signedIn(ctx context.Context) (bool, error) {
+	raw, err := e.call(ctx, "token.get", nil)
 	if err != nil {
 		return false, err
 	}
@@ -379,15 +409,30 @@ func (e *Engine) SignedIn(ctx context.Context) (bool, error) {
 // ShowSignIn opens the window on Spotify's sign-in page and hides it again
 // once the listener has signed in.
 func (e *Engine) ShowSignIn(ctx context.Context) error {
+	e.mu.Lock()
+	open, cmd := e.shown, e.cmd
+	e.mu.Unlock()
+	if open && cmd != nil {
+		// Already open on Spotify's sign-in page, which has no player for
+		// Start to wait for: just bring it forward.
+		showBrowser(cmd.Process.Pid, true)
+		return nil
+	}
 	if err := e.Start(ctx); err != nil {
 		return err
 	}
 	e.mu.Lock()
 	conn, cmd := e.conn, e.cmd
+	already := e.shown
 	e.shown = true
 	e.mu.Unlock()
 	if conn == nil || cmd == nil {
 		return errors.New("Spotify's Web Player is not running.")
+	}
+	if already {
+		// Already open: bring it forward without reloading what is typed.
+		showBrowser(cmd.Process.Pid, true)
+		return nil
 	}
 	if _, err := conn.send(ctx, "Page.navigate", map[string]any{"url": loginURL}); err != nil {
 		return err
@@ -402,7 +447,7 @@ func (e *Engine) hideAfterSignIn(pid int) {
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		signedIn, err := e.SignedIn(ctx)
+		signedIn, err := e.signedIn(ctx) // the page is back on open.spotify.com once signed in
 		cancel()
 		if err == nil && signedIn {
 			showBrowser(pid, false)
@@ -458,6 +503,36 @@ func (e *Engine) Close() {
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
+}
+
+// optInWidevine turns on Brave's Widevine for the player's own profile.
+// Brave ships with it off and asks first; without it Spotify's encrypted
+// audio does not play. Only a profile Ryotunes created is touched, and only
+// to add this one setting.
+func optInWidevine(profile string) {
+	set := func(path string) {
+		values := map[string]any{}
+		if raw, err := os.ReadFile(path); err == nil {
+			if json.Unmarshal(raw, &values) != nil {
+				return // a file Brave is writing: leave it
+			}
+		}
+		brave, _ := values["brave"].(map[string]any)
+		if brave == nil {
+			brave = map[string]any{}
+		}
+		if on, _ := brave["widevine_opted_in"].(bool); on {
+			return
+		}
+		brave["widevine_opted_in"] = true
+		values["brave"] = brave
+		if encoded, err := json.Marshal(values); err == nil {
+			_ = os.MkdirAll(filepath.Dir(path), 0o700)
+			_ = os.WriteFile(path, encoded, 0o600)
+		}
+	}
+	set(filepath.Join(profile, "Local State"))
+	set(filepath.Join(profile, "Default", "Preferences"))
 }
 
 func waitPort(ctx context.Context, portFile string) (string, error) {

@@ -20,6 +20,8 @@ const (
 type runningCapture struct {
 	command *exec.Cmd
 	wait    <-chan error
+	// stop ends an in-process capture (Windows loopback) instead of a command.
+	stop func()
 }
 
 type captureLifecycle struct {
@@ -296,6 +298,11 @@ func startCapture(command *exec.Cmd, read func()) (*runningCapture, error) {
 }
 
 func stopCapture(process *runningCapture) {
+	if process.stop != nil {
+		process.stop()
+		<-process.wait
+		return
+	}
 	_ = process.command.Process.Signal(syscall.SIGTERM)
 	timer := time.NewTimer(stopGrace)
 	defer stopTimer(timer)

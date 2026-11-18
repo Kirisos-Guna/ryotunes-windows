@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
 	"github.com/ryoku-dev/ryotunes/internal/model"
+	"github.com/ryoku-dev/ryotunes/internal/webplayer"
 )
 
 const madeForYouPage = "0JQ5DAt0tbjZptfcdMSKl3"
@@ -90,6 +92,12 @@ type pfBrowseEntity struct {
 			Username string `json:"username"`
 		} `json:"data"`
 	} `json:"ownerV2"`
+	Profile struct {
+		Name string `json:"name"`
+	} `json:"profile"`
+	Visuals struct {
+		Avatar pfArtwork `json:"avatarImage"`
+	} `json:"visuals"`
 	Data *struct {
 		Card *struct {
 			Title *struct {
@@ -170,13 +178,91 @@ func (p *Spotify) Genres(ctx context.Context) ([]model.BrowseItem, error) {
 	return cards, nil
 }
 
-// Home implements provider.Provider.
+// Home implements provider.Provider: the listener's own Home feed (Jump
+// back in, top mixes, recommended stations...), as the Web Player shows it.
+// A chip's params open that browse page instead. If the personal feed
+// fails, Spotify's editorial Made For You page stands in.
 func (p *Spotify) Home(ctx context.Context, params string) (model.Feed, error) {
-	id := madeForYouPage
-	if strings.TrimSpace(params) != "" {
-		id = strings.TrimSpace(params)
+	if id := strings.TrimSpace(params); id != "" {
+		return p.browsePage(ctx, id)
 	}
-	return p.browsePage(ctx, id)
+	feed, err := p.personalHome(ctx)
+	if err == nil && len(feed.Sections) > 0 {
+		return feed, nil
+	}
+	if err != nil {
+		p.log.Warn("Spotify home feed failed, showing Made For You", "error", err)
+	}
+	return p.browsePage(ctx, madeForYouPage)
+}
+
+func (p *Spotify) personalHome(ctx context.Context) (model.Feed, error) {
+	sess, err := p.session(ctx)
+	if err != nil {
+		return model.Feed{}, err
+	}
+	var data struct {
+		Home *struct {
+			Sections struct {
+				Sections struct {
+					Items []pfBrowseSection `json:"items"`
+				} `json:"sections"`
+			} `json:"sectionContainer"`
+		} `json:"home"`
+	}
+	zone := time.Local.String()
+	if zone == "Local" || zone == "" {
+		zone = "UTC"
+	}
+	variables := map[string]any{
+		"timeZone": zone, "sp_t": "", "facet": "", "sectionItemsLimit": 12,
+		"homeEndUserIntegration": "INTEGRATION_WEB_PLAYER", "includeEpisodeContentRatingsV2": false,
+		"includeHomeChapterVideoCards": false,
+	}
+	// Spotify answers the home query only for the Web Player's own client
+	// (librespot's gets HTTP 403), so it runs in the page, as Myspoti does.
+	if engine := webplayer.Default(); engine != nil {
+		raw, err := engine.Call(ctx, "gql.query", map[string]any{
+			"name": "home", "hash": defaultPathfinderHashes["home"], "variables": variables,
+		})
+		if err != nil {
+			return model.Feed{}, err
+		}
+		var envelope struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return model.Feed{}, err
+		}
+		if err := json.Unmarshal(envelope.Data, &data); err != nil {
+			return model.Feed{}, err
+		}
+	} else if err := p.pathfinderQuery(ctx, sess, "home", variables, &data); err != nil {
+		return model.Feed{}, mapProviderError(err)
+	}
+	if data.Home == nil {
+		return model.Feed{}, fmt.Errorf("home Pathfinder response has no home")
+	}
+	feed := model.Feed{}
+	for _, section := range data.Home.Sections.Sections.Items {
+		shelf := model.Shelf{}
+		if section.Data.Title != nil {
+			shelf.Title = section.Data.Title.Label
+		}
+		for _, item := range section.Items.Items {
+			if card, ok := browseCard(item); ok && card.Kind != "browse" {
+				shelf.Items = append(shelf.Items, card)
+			}
+		}
+		if len(shelf.Items) == 0 {
+			continue
+		}
+		if shelf.Title == "" {
+			shelf.Title = "Your shortcuts"
+		}
+		feed.Sections = append(feed.Sections, shelf)
+	}
+	return feed, nil
 }
 
 // HomeMore implements provider.Provider; Spotify browse pages are fetched in full.
@@ -258,6 +344,14 @@ func browseCard(item pfBrowseItem) (model.BrowseItem, bool) {
 		}
 		card.Thumbnail = imageFrom(entity.Cover.Sources, false)
 		return card, id != ""
+	case "Artist":
+		id := strings.TrimPrefix(entity.URI, "spotify:artist:")
+		if id == entity.URI || id == "" {
+			id = strings.TrimPrefix(item.URI, "spotify:artist:")
+		}
+		card := model.BrowseItem{Kind: "artist", ID: "spotify:artist:" + id, Title: entity.Profile.Name}
+		card.Thumbnail = imageFrom(entity.Visuals.Avatar.Sources, false)
+		return card, id != "" && card.Title != ""
 	case "BrowseSectionContainer":
 		id := strings.TrimPrefix(item.URI, "spotify:page:")
 		if entity.Data == nil || entity.Data.Card == nil || id == item.URI || id == "" {

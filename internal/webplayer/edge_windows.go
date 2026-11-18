@@ -15,10 +15,11 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// findBrowser returns Microsoft Edge (preferred: every Windows 10/11 has it,
-// with its licensed Widevine module) or Google Chrome.
+// findBrowser returns Brave (the listener's choice), else Microsoft Edge
+// (every Windows 10/11 has it) or Google Chrome. All three are Chromium with
+// a licensed Widevine module.
 func findBrowser() (string, error) {
-	for _, name := range []string{"msedge.exe", "chrome.exe"} {
+	for _, name := range []string{"brave.exe", "msedge.exe", "chrome.exe"} {
 		for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
 			key, err := registry.OpenKey(root, `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\`+name, registry.QUERY_VALUE)
 			if err != nil {
@@ -32,6 +33,8 @@ func findBrowser() (string, error) {
 		}
 	}
 	for _, path := range []string{
+		filepath.Join(os.Getenv("ProgramFiles"), `BraveSoftware\Brave-Browser\Application\brave.exe`),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), `BraveSoftware\Brave-Browser\Application\brave.exe`),
 		filepath.Join(os.Getenv("ProgramFiles(x86)"), `Microsoft\Edge\Application\msedge.exe`),
 		filepath.Join(os.Getenv("ProgramFiles"), `Microsoft\Edge\Application\msedge.exe`),
 		filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`),
@@ -41,7 +44,7 @@ func findBrowser() (string, error) {
 			return path, nil
 		}
 	}
-	return "", errors.New("Microsoft Edge was not found. Spotify playback needs Edge (or Google Chrome).")
+	return "", errors.New("No browser for Spotify was found. Spotify playback needs Brave, Microsoft Edge or Google Chrome.")
 }
 
 func fileExists(path string) bool {

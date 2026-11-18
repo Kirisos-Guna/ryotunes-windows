@@ -60,6 +60,8 @@ type window struct {
 	// placed records that the window has been positioned once (Ryotunes
 	// patch), so later Configure calls keep the user's position.
 	placed bool
+	// smooth spreads mouse-wheel notches over frames (smoothscroll_windows.go).
+	smooth smoothScroll
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -364,6 +366,11 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		e := &ClosingEvent{}
 		w.ProcessEvent(e)
 		if e.abort {
+			return 0
+		}
+	case windows.WM_TIMER:
+		if wParam == smoothScrollTimer {
+			w.smoothScrollStep()
 			return 0
 		}
 	case windows.WM_POINTERWHEEL:
@@ -729,6 +736,10 @@ func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.
 		} else {
 			sp.Y = -dist
 		}
+	}
+	if isNotch(dist) {
+		w.smoothScrollBy(sp, p, getPointerButtons(pi), kmods)
+		return
 	}
 	w.ProcessEvent(pointer.Event{
 		Kind:      pointer.Scroll,
