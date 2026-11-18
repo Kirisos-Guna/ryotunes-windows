@@ -36,6 +36,7 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 
 | Area | Linux upstream | Windows port |
 |---|---|---|
+| DPI awareness | Gio sets per-monitor DPI awareness on its window thread | Also declared process-wide at startup (`internal/platform/dpi_windows.go`), so DLLs other programs inject (e.g. Windhawk window-animation mods) see real coordinates and animate the window in place |
 | Directories | XDG Base Directory variables | `internal/platform` maps them to `%APPDATA%\Ryotunes`, `%LOCALAPPDATA%\Ryotunes` and `%TEMP%\Ryotunes` before any package reads them |
 | Daemon socket | Unix socket, systemd socket activation | The same AF_UNIX socket (Windows 10 1803+) under `%TEMP%`; the client probes it and starts `ryotunesd.exe` from its own folder |
 | Stale sockets | `Lstat` + mode check | Windows stores AF_UNIX sockets as reparse points that `os.Lstat`/`os.Remove` cannot open, so `DeleteFileW` removes them under the instance lock |
