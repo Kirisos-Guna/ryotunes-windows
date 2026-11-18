@@ -13,6 +13,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/bus"
 	"github.com/ryoku-dev/ryotunes/internal/diag"
 	"github.com/ryoku-dev/ryotunes/internal/downloads"
+	"github.com/ryoku-dev/ryotunes/internal/extensions"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/discord"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/lastfm"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/listentogether"
@@ -44,6 +45,7 @@ type App struct {
 	Bus   *bus.Fanout
 
 	Player        *player.Player
+	Extensions    *extensions.Manager
 	Queue         *queue.Queue
 	Providers     *provider.Registry
 	EngineVersion string

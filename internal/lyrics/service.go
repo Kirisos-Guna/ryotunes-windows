@@ -54,6 +54,14 @@ type Options struct {
 	Romanize bool
 	// LocalPath resolves a LOCAL track id to its audio path.
 	LocalPath func(videoID string) (string, bool)
+	// Extensions answers from installed Myspoti lyrics extensions, asked
+	// before the built-in sources.
+	Extensions ExtensionLyricist
+}
+
+// ExtensionLyricist is the installed lyrics extensions (internal/extensions).
+type ExtensionLyricist interface {
+	LyricsFor(ctx context.Context, req Request) (*model.Lyrics, error)
 }
 
 // Service resolves and caches lyrics.
@@ -68,6 +76,7 @@ type Service struct {
 	now       func() time.Time
 	romanize  bool
 	localPath func(string) (string, bool)
+	exts      ExtensionLyricist
 
 	mu      sync.Mutex
 	flights map[string]*flight
@@ -109,7 +118,7 @@ func New(o Options) *Service {
 	return &Service{
 		cache: o.Cache, settings: o.Settings, youtube: o.YouTube, spotify: o.Spotify,
 		http: client, log: log, userAgent: fmt.Sprintf("Ryotunes/%s desktop", version),
-		now: now, romanize: o.Romanize, localPath: localPath, flights: make(map[string]*flight),
+		now: now, romanize: o.Romanize, localPath: localPath, exts: o.Extensions, flights: make(map[string]*flight),
 	}
 }
 
@@ -193,12 +202,28 @@ func (s *Service) fetch(ctx context.Context, req Request, forced string) (fetchO
 		return out, err
 	}
 
+	var extensionPlain *model.Lyrics
+	if s.exts != nil {
+		lyrics, err := s.exts.LyricsFor(ctx, req)
+		if err != nil {
+			s.log.Debug("lyrics extensions failed", "error", err)
+		} else if lyrics != nil {
+			if lyrics.Synced {
+				return fetchOutcome{lyrics: lyrics, definitive: true}, nil
+			}
+			extensionPlain = lyrics
+		}
+	}
+
 	track := trackFromRequest(req)
 	if model.ProviderOf(req.VideoID) == model.ProviderSpotify {
 		if s.spotify == nil {
 			return fetchOutcome{}, nil
 		}
 		lyrics, err := s.spotify.Lyrics(ctx, track)
+		if (lyrics == nil || err != nil) && extensionPlain != nil {
+			return fetchOutcome{lyrics: extensionPlain, definitive: true}, nil
+		}
 		if errors.Is(err, provider.ErrNotFound) || errors.Is(err, provider.ErrUnsupported) {
 			return fetchOutcome{definitive: true}, nil
 		}
@@ -207,6 +232,9 @@ func (s *Service) fetch(ctx context.Context, req Request, forced string) (fetchO
 
 	var errs []error
 	var plain []*model.Lyrics
+	if extensionPlain != nil {
+		plain = append(plain, extensionPlain)
+	}
 	timed := func(lyrics *model.Lyrics) bool {
 		if lyrics == nil {
 			return false

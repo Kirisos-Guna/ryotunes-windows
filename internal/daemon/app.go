@@ -12,6 +12,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/bus"
 	"github.com/ryoku-dev/ryotunes/internal/diag"
 	"github.com/ryoku-dev/ryotunes/internal/downloads"
+	"github.com/ryoku-dev/ryotunes/internal/extensions"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/discord"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/lastfm"
 	"github.com/ryoku-dev/ryotunes/internal/integrations/listentogether"
@@ -124,10 +125,13 @@ func New(ctx context.Context, bootstrapLog *slog.Logger) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
+	// Myspoti extensions installed in <config>/extensions (internal/extensions).
+	a.Extensions = extensions.Load(extensions.Dir(dirs.Config), log)
 	a.Lyrics = lyrics.New(lyrics.Options{
 		Cache: lyricsCache{store: a.Store}, Settings: kv, YouTube: a.YouTube,
 		Spotify: a.Spotify, Log: log, Version: version.Version,
 		Romanize: settings.LyricsRomanize, LocalPath: local.PathFromID,
+		Extensions: a.Extensions,
 	})
 	a.Downloads, err = downloads.New(downloads.Options{
 		DataDir: dirs.Data, Sink: a.Bus, Searcher: youtubeDownloadSearcher{youtube: a.YouTube},
@@ -395,6 +399,7 @@ func (a *App) Close(ctx context.Context) error {
 	if a.Player != nil {
 		a.Player.Close()
 	}
+	a.Extensions.Close()
 	if a.Store != nil {
 		if err := a.Store.Close(); err != nil {
 			errs = append(errs, err)

@@ -18,6 +18,14 @@ Start-menu shortcut and an uninstaller, and includes `libmpv-2.dll` and
 winget install Gyan.FFmpeg
 ```
 
+## Spotify
+
+Spotify songs play in Spotify's own Web Player, which Ryotunes runs in a hidden
+Microsoft Edge window using the bridge from [Myspoti](https://kirisos-git.centralindia.cloudapp.azure.com/Kirisos/myspoti).
+Sign in once in the window that opens the first time you play a Spotify song.
+Lyrics extensions written for Myspoti work too: see
+[docs/WINDOWS-PORT.md](docs/WINDOWS-PORT.md#myspoti-extensions).
+
 ## Build from source
 
 ```powershell

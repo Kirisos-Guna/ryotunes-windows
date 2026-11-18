@@ -19,6 +19,7 @@ import (
 	metadatapb "github.com/devgianlu/go-librespot/proto/spotify/metadata"
 	"github.com/ryoku-dev/ryotunes/internal/model"
 	providerapi "github.com/ryoku-dev/ryotunes/internal/provider"
+	"github.com/ryoku-dev/ryotunes/internal/webplayer"
 )
 
 const spotifyOggHeaderOffset int64 = 0xa7
@@ -42,21 +43,34 @@ func (p *Spotify) Resolve(ctx context.Context, track model.Track, quality model.
 	if err != nil {
 		return model.Stream{}, fmt.Errorf("%w: %v", providerapi.ErrUnavailable, err)
 	}
+	if webplayer.Default() != nil {
+		// Spotify refuses librespot the audio keys; its own Web Player
+		// plays the track instead (internal/webplayer, internal/player/web.go).
+		return model.Stream{URL: "webplayer:spotify:track:" + bare, Codec: "webplayer"}, nil
+	}
 
 	var files audiofilespb.AudioFilesExtensionResponse
 	if err := sess.Spclient().ExtendedMetadataSimple(ctx, *id, audiofilespbExtensionKind(), &files); err != nil {
+		p.log.Warn("Spotify stream: audio files lookup failed", "track", bare, "error", err)
 		return model.Stream{}, mapProviderError(err)
 	}
 	file, bitrate := chooseVorbis(files.GetFiles(), quality)
 	if file == nil || len(file.GetFileId()) == 0 {
+		formats := make([]string, 0, len(files.GetFiles()))
+		for _, f := range files.GetFiles() {
+			formats = append(formats, f.GetFile().GetFormat().String())
+		}
+		p.log.Warn("Spotify stream: no supported Ogg Vorbis file", "track", bare, "formats", formats)
 		return model.Stream{}, fmt.Errorf("%w: Spotify has no supported Ogg Vorbis file", providerapi.ErrUnavailable)
 	}
 	key, err := sess.AudioKey().Request(ctx, id.Id(), file.GetFileId())
 	if err != nil {
+		p.log.Warn("Spotify stream: audio key refused", "track", bare, "error", err)
 		return model.Stream{}, mapProviderError(err)
 	}
 	storage, err := sess.Spclient().ResolveStorageInteractive(ctx, file.GetFileId(), file.Format, false)
 	if err != nil {
+		p.log.Warn("Spotify stream: storage resolve failed", "track", bare, "error", err)
 		return model.Stream{}, mapProviderError(err)
 	}
 	urls := storage.GetCdnurl()
@@ -65,6 +79,7 @@ func (p *Spotify) Resolve(ctx context.Context, track model.Track, quality model.
 	}
 	raw, err := audio.NewHttpChunkedReader(p.liblog.WithField("track", bare), p.http, urls[0])
 	if err != nil {
+		p.log.Warn("Spotify stream: audio download failed", "track", bare, "error", err)
 		return model.Stream{}, mapProviderError(err)
 	}
 	decryptor, err := audio.NewAesAudioDecryptor(raw, key)

@@ -50,6 +50,48 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 | Self update | pacman / xbps / dnf via pkexec | Downloads this repository's `Ryotunes-Setup-<version>-x64.exe`, verifies its SHA-256 and runs it silently (`internal/update/windows.go`) |
 | Window maximize / fullscreen | Gio defaults | `third_party/gioui` is vendored with Windows fixes: maximize fills exactly the work area (no ghost caption buttons when the work area is inset), fullscreen covers the whole monitor, and the window opens centered inside the work area (a saved size that would not fit opens at 80% of it, `internal/platform/window_windows.go`) |
 
+## Spotify playback
+
+Spotify no longer gives librespot clients the keys to decrypt its audio
+("failed retrieving aes key with code 1"), and Ryotunes does not circumvent
+Spotify's DRM. On Windows, Spotify tracks play in **Spotify's own Web
+Player** instead, the way Myspoti's desktop host does:
+
+- `internal/webplayer` starts Microsoft Edge (or Chrome) with its own
+  profile in `%LOCALAPPDATA%\Ryotunes\webplayer`, opens open.spotify.com,
+  injects Myspoti's `player-bridge.js` and drives the page's player over the
+  Chrome DevTools Protocol. Edge's licensed Widevine module decrypts the audio,
+  and plays count for artists, history and Wrapped as in a browser.
+- The window stays shown but parked beyond the edge of every monitor as a tool
+  window (off the taskbar and Alt+Tab): Chromium does not load media in a
+  hidden window.
+- The first time, playing a Spotify track opens the window on Spotify's
+  sign-in page; it parks itself again once you have signed in.
+- `internal/player/web.go` routes `webplayer:spotify:track:<id>` streams to it
+  and turns the page's state into the same events mpv sends, so the queue,
+  pause, seek, volume and end-of-track work unchanged. mpv's equalizer and
+  effects do not apply to Spotify tracks.
+
+There are no ads on a Premium account. A free account hears Spotify's own ads,
+as in the Web Player.
+
+## Myspoti extensions
+
+`internal/extensions` runs extensions written for Myspoti's extension API in a
+JavaScript sandbox (goja). Install one by copying its folder (with
+`manifest.json` and `main.js`) into
+
+    %APPDATA%\Ryotunes\config\ryotunes\extensions
+yotunesextensions
+
+and restarting Ryotunes (Quit, then open it again). Supported today: the
+`lyrics` hook, asked before Ryotunes' built-in lyrics sources, with
+`myspoti.http` (the manifest's `network` hosts enforced, https only, no local
+addresses, 120 requests a minute), `query`, `settings.get` (manifest defaults,
+or `settings.json` in the folder), `storage`, `log`/`console` and `util`.
+Other hooks load and are ignored. `internal/extensions/testdata` holds
+Myspoti's sample LRCLIB extension, run unchanged by the tests.
+
 ## Not available on Windows
 
 - MPRIS, media keys and the tray icon use D-Bus. The daemon logs that they are

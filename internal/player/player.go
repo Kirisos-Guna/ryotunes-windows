@@ -51,6 +51,10 @@ type Player struct {
 	fx        model.AudioFx
 	equalizer model.Equalizer
 	loudness  *float64
+
+	// web plays Spotify tracks in Spotify's Web Player (web.go); nil when
+	// the system has no browser for it.
+	web *webSession
 }
 
 type request struct {
@@ -92,6 +96,7 @@ func New(o Options) (*Player, error) {
 	if err := <-ready; err != nil {
 		return nil, err
 	}
+	p.initWeb()
 	return p, nil
 }
 
@@ -112,6 +117,10 @@ func (p *Player) Load(ctx context.Context, s model.Stream, startAt float64, paus
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if IsWebStream(s) {
+		return p.loadWeb(ctx, s, startAt, paused)
+	}
+	p.leaveWeb()
 	return p.call(ctx, func(m *mpv.Mpv) error {
 		previousLoudness := p.loudness
 		p.loudness = cloneFloat(s.LoudnessDB)
@@ -152,6 +161,9 @@ func (p *Player) Load(ctx context.Context, s model.Stream, startAt float64, paus
 // Prefetch appends one compatible lookahead URL and asks mpv to open playlist entries ahead of time.
 // MPV headers are global, so the lookahead inherits the currently loaded stream's headers.
 func (p *Player) Prefetch(s model.Stream) {
+	if IsWebStream(s) || p.webActive() {
+		return
+	}
 	err := p.call(context.Background(), func(m *mpv.Mpv) error {
 		if err := p.setPropertyAsync(m, "prefetch-playlist", mpv.FormatString, "yes"); err != nil {
 			return err
@@ -165,6 +177,9 @@ func (p *Player) Prefetch(s model.Stream) {
 
 // Play resumes playback.
 func (p *Player) Play() error {
+	if p.webActive() {
+		return p.webCall("player.resume", nil)
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return p.setPropertyAsync(m, "pause", mpv.FormatFlag, false)
 	})
@@ -172,6 +187,9 @@ func (p *Player) Play() error {
 
 // Pause pauses playback.
 func (p *Player) Pause() error {
+	if p.webActive() {
+		return p.webCall("player.pause", nil)
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return p.setPropertyAsync(m, "pause", mpv.FormatFlag, true)
 	})
@@ -179,6 +197,12 @@ func (p *Player) Pause() error {
 
 // TogglePause toggles mpv's pause property.
 func (p *Player) TogglePause() error {
+	if p.webActive() {
+		if p.Paused() {
+			return p.webCall("player.resume", nil)
+		}
+		return p.webCall("player.pause", nil)
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return m.CommandAsync(p.nextAsyncID(), []string{"cycle", "pause"})
 	})
@@ -186,6 +210,11 @@ func (p *Player) TogglePause() error {
 
 // Stop stops playback and clears the resumable media session.
 func (p *Player) Stop() error {
+	if p.webActive() {
+		p.leaveWeb()
+		p.idle.Store(true)
+		return nil
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		if err := m.CommandAsync(p.nextAsyncID(), []string{"stop"}); err != nil {
 			return err
@@ -200,6 +229,10 @@ func (p *Player) Seek(pos float64) error {
 	if pos < 0 || math.IsNaN(pos) || math.IsInf(pos, 0) {
 		return fmt.Errorf("Seek position must be a non-negative finite number.")
 	}
+	if p.webActive() {
+		p.position.Store(math.Float64bits(pos))
+		return p.webCall("player.seek", map[string]any{"positionMs": int64(pos * 1000)})
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return m.CommandAsync(p.nextAsyncID(), []string{"seek", formatFloat(pos), "absolute"})
 	})
@@ -208,6 +241,15 @@ func (p *Player) Seek(pos float64) error {
 // SetVolume sets output volume from a perceptual percentage in the range 0–100.
 func (p *Player) SetVolume(percent int) error {
 	percent = min(max(percent, 0), 100)
+	if p.web != nil {
+		level := float64(percent) / 100
+		p.web.mu.Lock()
+		p.web.volume = level
+		p.web.mu.Unlock()
+		if p.webActive() {
+			go p.webCall("volume.set", map[string]any{"level": level})
+		}
+	}
 	return p.call(context.Background(), func(m *mpv.Mpv) error {
 		return p.setPropertyAsync(m, "volume", mpv.FormatDouble, perceptualVolume(percent))
 	})
@@ -332,6 +374,9 @@ func (p *Player) Close() {
 	p.closeOnce.Do(func() {
 		close(p.stop)
 		<-p.closed
+		if p.web != nil {
+			p.web.engine.Close()
+		}
 	})
 }
 
@@ -418,6 +463,10 @@ func (p *Player) run(o Options, ready chan<- error) {
 }
 
 func (p *Player) handleMPVEvent(event *mpv.Event, lastPositionEmit *time.Time, hasPosition *bool, lastTitle *string) {
+	if p.webActive() {
+		// mpv is stopped and unheard while the Web Player plays (web.go).
+		return
+	}
 	switch event.EventID {
 	case mpv.EventStart:
 		*lastTitle = ""

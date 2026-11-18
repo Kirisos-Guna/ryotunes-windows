@@ -45,6 +45,18 @@ LibreWolf, Waterfox, Zen, Floorp) works best. Recent Chrome, Edge and Brave
 builds protect cookies with "app-bound encryption", which other programs
 cannot read; sign in with a Firefox-family browser if import finds nothing.
 
+Spotify
+-------
+Spotify songs play in Spotify's own Web Player, which Ryotunes runs in a
+Microsoft Edge window you never see. The first time you play a Spotify song,
+that window opens on Spotify's sign-in page: sign in once and it goes away.
+
+Extensions
+----------
+Lyrics extensions written for Myspoti work in Ryotunes: copy the extension's
+folder (with manifest.json and main.js) into
+%APPDATA%\Ryotunes\config\ryotunes\extensions and restart Ryotunes.
+
 Linux-only features that are off on Windows
 -------------------------------------------
   - MPRIS / media keys and the system tray (they use D-Bus)
