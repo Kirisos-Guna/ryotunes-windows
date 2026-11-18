@@ -111,9 +111,7 @@ func (p *Player) loadWeb(ctx context.Context, s model.Stream, startAt float64, p
 		p.deactivateWeb()
 		return err
 	}
-	if paused {
-		_, _ = engine.Call(ctx, "player.pause", nil)
-	}
+	p.resumeStalledAd(ctx)
 	return nil
 }
 
@@ -188,8 +186,19 @@ func (p *Player) webReload(resume bool) error {
 	}
 	if !resume {
 		_, err = engine.Call(ctx, "player.pause", nil)
+		return err
 	}
-	return err
+	p.resumeStalledAd(ctx)
+	return nil
+}
+
+// resumeStalledAd un-pauses an ad break left paused: a new play request
+// does not resume it, and the song would wait behind it for ever.
+func (p *Player) resumeStalledAd(ctx context.Context) {
+	time.Sleep(400 * time.Millisecond)
+	if state := p.web.engine.State(); isAd(state) && state.IsPaused {
+		_, _ = p.web.engine.Call(ctx, "player.resume", nil)
+	}
 }
 
 // webResume resumes our track, reloading it when the page lost it.

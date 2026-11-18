@@ -180,20 +180,17 @@ func (p *Spotify) Genres(ctx context.Context) ([]model.BrowseItem, error) {
 
 // Home implements provider.Provider: the listener's own Home feed (Jump
 // back in, top mixes, recommended stations...), as the Web Player shows it.
-// A chip's params open that browse page instead. If the personal feed
-// fails, Spotify's editorial Made For You page stands in.
+// A chip's params open that browse page instead.
 func (p *Spotify) Home(ctx context.Context, params string) (model.Feed, error) {
 	if id := strings.TrimSpace(params); id != "" {
 		return p.browsePage(ctx, id)
 	}
 	feed, err := p.personalHome(ctx)
-	if err == nil && len(feed.Sections) > 0 {
-		return feed, nil
-	}
 	if err != nil {
-		p.log.Warn("Spotify home feed failed, showing Made For You", "error", err)
+		p.log.Warn("Spotify home feed failed", "error", err)
+		return model.Feed{}, fmt.Errorf("Your Spotify Home could not load: %w", err)
 	}
-	return p.browsePage(ctx, madeForYouPage)
+	return feed, nil
 }
 
 func (p *Spotify) personalHome(ctx context.Context) (model.Feed, error) {
@@ -262,7 +259,34 @@ func (p *Spotify) personalHome(ctx context.Context) (model.Feed, error) {
 		}
 		feed.Sections = append(feed.Sections, shelf)
 	}
+	feed.Sections = mergeShelves(feed.Sections)
 	return feed, nil
+}
+
+// mergeShelves joins shelves Spotify sends under the same heading (several
+// one-card "Made for you" or "More like ..." sections) into one, where the
+// first of them stood, without repeating a card.
+func mergeShelves(shelves []model.Shelf) []model.Shelf {
+	index := map[string]int{}
+	seen := map[string]map[string]bool{}
+	var out []model.Shelf
+	for _, shelf := range shelves {
+		key := strings.ToLower(strings.TrimSpace(shelf.Title))
+		at, ok := index[key]
+		if !ok {
+			at = len(out)
+			index[key] = at
+			seen[key] = map[string]bool{}
+			out = append(out, model.Shelf{Title: shelf.Title})
+		}
+		for _, item := range shelf.Items {
+			if !seen[key][item.ID] {
+				seen[key][item.ID] = true
+				out[at].Items = append(out[at].Items, item)
+			}
+		}
+	}
+	return out
 }
 
 // HomeMore implements provider.Provider; Spotify browse pages are fetched in full.

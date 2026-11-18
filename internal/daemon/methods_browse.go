@@ -51,6 +51,13 @@ func getHome(ctx context.Context, a *App, p protocol.HomeParams) (model.Feed, er
 		feed, err := selected.Home(ctx, "")
 		return feed, providerError(selected.ID(), err)
 	}
+	// Spotify selected and signed in: the listener's own Spotify Home and
+	// nothing else (no YouTube Music shelves or mood chips around it).
+	if selected.ID() == model.ProviderSpotify && a.Spotify.Status().SignedIn {
+		feed, err := a.Spotify.Home(ctx, "")
+		feed.Chips = []model.FeedChip{}
+		return feed, providerError(selected.ID(), err)
+	}
 	params := ""
 	if p.Params != nil {
 		params = *p.Params
