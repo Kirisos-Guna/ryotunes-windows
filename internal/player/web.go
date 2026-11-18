@@ -59,6 +59,23 @@ func (p *Player) initWeb() {
 
 // loadWeb starts uri in the Web Player.
 func (p *Player) loadWeb(ctx context.Context, s model.Stream, startAt float64, paused bool) error {
+	err := p.startWeb(ctx, s, startAt, paused)
+	if err != nil {
+		p.webStopped()
+	}
+	return err
+}
+
+// webStopped records that nothing plays after a start that failed (sign-in
+// needed, the browser could not start...): the player must not look as if
+// it plays, or its clock would run past the song with nothing heard.
+func (p *Player) webStopped() {
+	if !p.paused.Swap(true) {
+		p.emit(Event{Kind: PauseChanged, Paused: true})
+	}
+}
+
+func (p *Player) startWeb(ctx context.Context, s model.Stream, startAt float64, paused bool) error {
 	if p.web == nil {
 		return errors.New("Spotify playback is not available on this system.")
 	}
@@ -204,7 +221,11 @@ func (p *Player) resumeStalledAd(ctx context.Context) {
 // webResume resumes our track, reloading it when the page lost it.
 func (p *Player) webResume() error {
 	if !p.webOnTrack() {
-		return p.webReload(true)
+		err := p.webReload(true)
+		if err != nil {
+			p.webStopped()
+		}
+		return err
 	}
 	return p.webCall("player.resume", nil)
 }
