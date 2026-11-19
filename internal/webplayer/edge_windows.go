@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -109,27 +110,46 @@ func browserLaunchArgs() []string {
 
 // browserWindows lists pid's browser windows (class Chrome_WidgetWin_1),
 // not its helper windows such as "Default IME".
+//
+// The EnumWindows callback is made once: Go allows a process only about
+// 2000 callbacks, and keepParked looks for the windows every second, so a
+// callback per call crashed the daemon ("too many callback functions")
+// after about half an hour of music, stopping the song while it restarted.
 func browserWindows(pid int) []uintptr {
-	var found []uintptr
-	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		var owner uint32
-		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&owner)))
-		if int(owner) != pid {
-			return 1
-		}
-		class := make([]uint16, 64)
-		n, _, _ := procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&class[0])), uintptr(len(class)))
-		if windows.UTF16ToString(class[:n]) != "Chrome_WidgetWin_1" {
-			return 1
-		}
-		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
-			return 1
-		}
-		found = append(found, hwnd)
-		return 1
-	})
-	procEnumWindows.Call(callback, 0)
+	enumWindows.mu.Lock()
+	defer enumWindows.mu.Unlock()
+	enumWindows.pid, enumWindows.found = pid, nil
+	procEnumWindows.Call(enumCallback, 0)
+	found := enumWindows.found
+	enumWindows.found = nil
 	return found
+}
+
+var enumWindows struct {
+	mu    sync.Mutex
+	pid   int
+	found []uintptr
+}
+
+var enumCallback = syscall.NewCallback(collectBrowserWindow)
+
+func collectBrowserWindow(hwnd uintptr, _ uintptr) uintptr {
+	// Runs inside browserWindows' EnumWindows, which holds enumWindows.mu.
+	var owner uint32
+	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&owner)))
+	if int(owner) != enumWindows.pid {
+		return 1
+	}
+	var class [64]uint16
+	n, _, _ := procGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&class[0])), uintptr(len(class)))
+	if windows.UTF16ToString(class[:n]) != "Chrome_WidgetWin_1" {
+		return 1
+	}
+	if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+		return 1
+	}
+	enumWindows.found = append(enumWindows.found, hwnd)
+	return 1
 }
 
 func setWindowPos(hwnd uintptr, x, y, width, height int, flags uintptr) {

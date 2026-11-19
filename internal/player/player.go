@@ -161,7 +161,13 @@ func (p *Player) Load(ctx context.Context, s model.Stream, startAt float64, paus
 // Prefetch appends one compatible lookahead URL and asks mpv to open playlist entries ahead of time.
 // MPV headers are global, so the lookahead inherits the currently loaded stream's headers.
 func (p *Player) Prefetch(s model.Stream) {
-	if IsWebStream(s) || p.webActive() {
+	if IsWebStream(s) {
+		if p.webActive() {
+			p.webPrefetch(strings.TrimPrefix(s.URL, WebScheme))
+		}
+		return
+	}
+	if p.webActive() {
 		return
 	}
 	err := p.call(context.Background(), func(m *mpv.Mpv) error {

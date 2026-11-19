@@ -25,6 +25,7 @@ browser window (Brave, else Microsoft Edge or Chrome) with its own profile in
 `%LOCALAPPDATA%\Ryotunes\spotify-player`, using the bridge from
 [Myspoti](https://kirisos-git.centralindia.cloudapp.azure.com/Kirisos/myspoti).
 Sign in once in the window that opens the first time you play a Spotify song.
+Ryotunes never uses your everyday browser, its tabs or its sign-ins.
 
 - Premium and Free accounts both play. A Free account plays Spotify's ads,
   as in Spotify's own apps; Ryotunes waits for the ad break and goes on.
@@ -43,13 +44,13 @@ sign-in page. It belongs to Ryotunes' own browser profile, the one the Spotify
 player uses, not your everyday browser. Sign in there; Ryotunes takes the
 session from that window and closes it.
 
-On Linux, Ryotunes imports the session from your browsers' cookie stores. It
-does not on Windows: that means decrypting your browsers' saved cookies, which
-Windows Security rightly stops as credential theft
-(`Behavior:Win32/WebBrowserCredAccess`), and current Chrome, Edge and Brave
-lock their cookies to themselves anyway.
-
 YouTube songs play as audio streams through mpv, with no video and no ads.
+
+## Appearance
+
+**Settings › Appearance** chooses the design (Lithic, Material, Adwaita or
+Fluent), light or dark, contrast and reduced motion. On a Ryoku Linux desktop
+these follow Ryoku Settings instead.
 
 ## Visualizer
 
@@ -61,7 +62,6 @@ style in **Settings › Appearance**, or click the visualizer on Home.
 
 | Problem | What to do |
 |---|---|
-| Windows Security reported `ryotunesd.exe` (WebBrowserCredAccess) | That was the cookie import of 2.3.5 and earlier. Update to 2.3.6 or later, then choose **Allow on device** for the old alert in Windows Security › Protection history if it is still listed. |
 | Spotify skips to other songs or stays silent | Spotify may have refused the player's browser profile. Close Ryotunes, rename `%LOCALAPPDATA%\Ryotunes\spotify-player`, open Ryotunes and sign in to Spotify again. |
 | Ryotunes did not start after a crash | A damaged database is now moved aside (`ryotunes.sqlite.damaged-<time>`, next to it) and a fresh one is started. Spotify stays signed in; sign in to YouTube and SoundCloud again. |
 | A sign-in window is hidden | Choose **Sign in** again: Ryotunes brings the open window forward. |

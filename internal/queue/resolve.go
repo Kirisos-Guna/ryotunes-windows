@@ -226,9 +226,8 @@ func (q *Queue) prime(ctx context.Context, generation uint64) {
 		}
 		item := q.state.items[index]
 		q.mu.Unlock()
-		if model.ProviderOf(item.VideoID) == model.ProviderSpotify {
-			return
-		}
+		// A Spotify song is prefetched too: the player puts it in Spotify's
+		// queue so the change to it has no gap (player.webPrefetch).
 		stream, _, err := q.resolve(ctx, item, true)
 		if err == nil {
 			q.mu.Lock()
