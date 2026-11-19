@@ -6,9 +6,9 @@ files). It is built from the `hyperion` branch of
 [ryoku-dev/ryotunes](https://github.com/ryoku-dev/ryotunes) with the smallest
 changes that make it build and run on Windows 10/11, in the same Go code.
 
-![Ryotunes on Windows: Spotify Home with the visualizer, Appearance designs and the floating mini player](docs/media/demo.gif)
+[![Ryotunes on Windows: Spotify Home with the visualizer, Appearance designs and the floating mini player](docs/media/demo.gif)](https://youtu.be/3L9Ch21sxLY)
 
-<!-- Full demo video on YouTube: add the link here once it is published. -->
+▶️ **[Watch the full demo on YouTube](https://youtu.be/3L9Ch21sxLY)**
 
 ## Download
 
