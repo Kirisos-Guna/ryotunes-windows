@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"runtime"
 	"strings"
 
 	"gioui.org/layout"
@@ -107,9 +108,12 @@ func (p *page) spotifyRow(e *env.Env, snapshot state.State) layout.Widget {
 	case snapshot.Spotify.SignedIn:
 		tone, claim = palette.Alive, "Connected"
 		detail = valueOr(snapshot.Spotify.Name, "Spotify")
-		if snapshot.Spotify.Premium != nil && !*snapshot.Spotify.Premium {
+		switch {
+		case snapshot.Spotify.Premium != nil && !*snapshot.Spotify.Premium && runtime.GOOS == "windows":
+			detail += " · Free (Spotify plays its ads)"
+		case snapshot.Spotify.Premium != nil && !*snapshot.Spotify.Premium:
 			detail += " · Premium is required for playback."
-		} else {
+		case snapshot.Spotify.Premium != nil:
 			detail += " · Premium"
 		}
 	case flow.Error != "":

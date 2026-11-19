@@ -18,6 +18,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/netx"
 	"github.com/ryoku-dev/ryotunes/internal/protocol"
 	providerapi "github.com/ryoku-dev/ryotunes/internal/provider"
+	"github.com/ryoku-dev/ryotunes/internal/webplayer"
 )
 
 // Options configures a Spotify provider.
@@ -59,6 +60,9 @@ type Spotify struct {
 	sess    *session.Session
 	name    string
 	premium bool
+	// product is Spotify's own word for the plan ("premium", "free"), or ""
+	// while Spotify has not said (its profile check is often rate limited).
+	product string
 	// profileRecheck is set while the product is unknown (the profile check
 	// was rate limited or failed): the next session use after it asks again.
 	profileRecheck time.Time
@@ -144,6 +148,14 @@ func (p *Spotify) Status() model.SpotifyStatus {
 	if p.sess != nil {
 		status.Name = new(p.name)
 		status.Premium = new(p.premium)
+		if webPlayback() {
+			// Through the Web Player any plan plays: report only what Spotify said.
+			if p.product == "" {
+				status.Premium = nil
+			} else {
+				status.Premium = new(p.product == "premium")
+			}
+		}
 	}
 	return status
 }
@@ -186,7 +198,7 @@ func (p *Spotify) session(ctx context.Context) (*session.Session, error) {
 	if !recheck.IsZero() && !time.Now().Before(recheck) {
 		premium = p.recheckProfile(ctx, sess, spclientToken(sess))
 	}
-	if !premium {
+	if !premium && !webPlayback() {
 		return nil, providerapi.ErrNotPremium
 	}
 	select {
@@ -239,6 +251,7 @@ func (p *Spotify) recheckProfile(ctx context.Context, owner *session.Session, ac
 	}
 	p.profileRecheck = time.Time{}
 	p.premium = profile.Product == "premium"
+	p.product = profile.Product
 	if profile.DisplayName != "" {
 		p.name = profile.DisplayName
 	}
@@ -313,6 +326,7 @@ func (p *Spotify) installSession(sess *session.Session, profile accountProfile) 
 	p.unrecoverable = nil
 	p.name = profile.DisplayName
 	p.premium = profile.Product == "premium" || profile.Product == ""
+	p.product = profile.Product
 	p.profileRecheck = profile.recheckAt
 	p.mu.Unlock()
 	if old != nil && old != sess {
@@ -327,7 +341,7 @@ func (p *Spotify) clearSession() *session.Session {
 	p.sess = nil
 	p.unrecoverable = nil
 	p.name = ""
-	p.premium = false
+	p.premium, p.product = false, ""
 	p.profileRecheck = time.Time{}
 	p.mu.Unlock()
 	return old
@@ -402,3 +416,8 @@ var (
 	_ providerapi.Radio          = (*Spotify)(nil)
 	_ providerapi.Grid           = (*Spotify)(nil)
 )
+
+// webPlayback reports that Spotify plays through Spotify's own Web Player
+// (Windows, internal/webplayer), which serves every plan, Free included:
+// the Premium requirement of librespot playback does not apply.
+var webPlayback = func() bool { return webplayer.Default() != nil }

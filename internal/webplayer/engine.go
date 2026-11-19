@@ -23,7 +23,9 @@ package webplayer
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"embed"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -212,7 +214,8 @@ func (e *Engine) launch() error {
 	}
 	token := randomToken()
 	address := "ws://" + listener.Addr().String() + "/ryotunes/" + token
-	if err := e.writeExtension(address); err != nil {
+	extension, err := e.writeExtension(address)
+	if err != nil {
 		listener.Close()
 		return fmt.Errorf("prepare the Spotify player extension: %w", err)
 	}
@@ -221,7 +224,7 @@ func (e *Engine) launch() error {
 
 	args := []string{
 		"--user-data-dir=" + e.profile,
-		"--load-extension=" + e.extension,
+		"--load-extension=" + extension,
 		"--no-first-run", "--no-default-browser-check",
 		"--autoplay-policy=no-user-gesture-required",
 		"--disable-background-timer-throttling",
@@ -258,12 +261,17 @@ func (e *Engine) launch() error {
 	return nil
 }
 
-// writeExtension writes the extension, with the relay's address, where the
-// browser loads it from.
-func (e *Engine) writeExtension(address string) error {
-	if err := os.MkdirAll(e.extension, 0o700); err != nil {
-		return err
-	}
+// writeExtension writes the extension, with the relay's address, and returns
+// the folder the browser loads it from.
+//
+// Each version of the extension goes in a folder of its own: the browser
+// keeps an unpacked extension's service worker, cached in the profile, for as
+// long as the extension's folder stays the same, so a Ryotunes update would go
+// on running the old background script. A new folder is a new extension to
+// the browser. Folders of older versions are removed.
+func (e *Engine) writeExtension(address string) (string, error) {
+	digest := sha256.New()
+	files := map[string][]byte{}
 	err := fs.WalkDir(extensionFiles, "extension", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
@@ -272,13 +280,49 @@ func (e *Engine) writeExtension(address string) error {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(e.extension, filepath.Base(path)), data, 0o600)
+		files[filepath.Base(path)] = data
+		digest.Write([]byte(path))
+		digest.Write(data)
+		return nil
 	})
 	if err != nil {
-		return err
+		return "", err
+	}
+	sum := digest.Sum(nil)
+	version := fmt.Sprintf("1.%d.%d.%d", binary.BigEndian.Uint16(sum[0:2]), binary.BigEndian.Uint16(sum[2:4]), binary.BigEndian.Uint16(sum[4:6]))
+	files["manifest.json"] = []byte(strings.Replace(string(files["manifest.json"]), `"version": "1.0.0"`, `"version": "`+version+`"`, 1))
+
+	dir := fmt.Sprintf("%s-%x", e.extension, sum[:4])
+	old, _ := filepath.Glob(e.extension + "*")
+	for _, path := range old {
+		if path != dir {
+			removeExtension(path)
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			return "", err
+		}
 	}
 	config, _ := json.Marshal(map[string]string{"url": address})
-	return os.WriteFile(filepath.Join(e.extension, "config.json"), config, 0o600)
+	return dir, os.WriteFile(filepath.Join(dir, "config.json"), config, 0o600)
+}
+
+// removeExtension removes an old extension folder, which holds files only.
+// os.RemoveAll can fail on Windows ("too many levels of symbolic links") where
+// removing the files one by one works.
+func removeExtension(dir string) {
+	if os.RemoveAll(dir) == nil {
+		return
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
+	_ = os.Remove(dir)
 }
 
 var upgrader = websocket.Upgrader{
@@ -416,6 +460,20 @@ func (e *Engine) message(payload string) {
 		}
 	case "error", "jserror", "drm":
 		e.log.Debug("Spotify Web Player", "type", msg.Type, "error", msg.Error)
+	case "net":
+		// Spotify refusing a song's playback licence makes its player skip
+		// to other songs: worth a warning in the diagnostics.
+		var net struct {
+			URL    string `json:"url"`
+			Status int    `json:"status"`
+		}
+		if json.Unmarshal([]byte(payload), &net) == nil && strings.Contains(net.URL, "audio/license") {
+			if net.Status >= 400 {
+				e.log.Warn("Spotify refused the playback licence", "status", net.Status)
+			} else {
+				e.log.Info("Spotify granted the playback licence", "status", net.Status)
+			}
+		}
 	}
 }
 

@@ -368,6 +368,9 @@ func (p *Spotify) premiumProfile(ctx context.Context, accessToken func(context.C
 			return profile, nil
 		}
 		if profile.Product != "" {
+			if webPlayback() {
+				return profile, nil // the Web Player plays every plan
+			}
 			return profile, providerapi.ErrNotPremium
 		}
 		if time.Now().After(deadline) {
