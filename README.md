@@ -21,14 +21,15 @@ winget install Gyan.FFmpeg
 ## Spotify
 
 Spotify songs play in Spotify's own Web Player, which Ryotunes runs in a hidden
-browser window (Brave, else Microsoft Edge or Chrome) with its own profile in
-`%LOCALAPPDATA%\Ryotunes\spotify-player`, using the bridge from
+browser window with its own profile in `%LOCALAPPDATA%\Ryotunes\spotify-player`,
+using the bridge from
 [Myspoti](https://kirisos-git.centralindia.cloudapp.azure.com/Kirisos/myspoti).
 Sign in once in the window that opens the first time you play a Spotify song.
 Ryotunes never uses your everyday browser, its tabs or its sign-ins.
 
-- Premium and Free accounts both play. A Free account plays Spotify's ads,
-  as in Spotify's own apps; Ryotunes waits for the ad break and goes on.
+- Premium and Free accounts both play. Premium has no ads. On a Free account
+  Spotify decides when to play an ad, and it may be rare; when one plays,
+  Ryotunes waits for the break and then carries on with your song.
 - Home is your own Spotify Home. Album, artist and search pages, saved albums
   and followed artists are read through the Web Player too, so they work while
   Spotify rate-limits its public Web API.
