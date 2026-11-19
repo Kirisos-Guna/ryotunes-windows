@@ -181,3 +181,25 @@ func (e *Engine) connect(ctx context.Context) error {
 		}
 	}
 }
+
+// reconnect waits for the extension's connection when it dropped (the
+// browser stopped the extension while idle or asleep, and the page wakes it
+// again), and restarts the browser when it does not come back.
+func (e *Engine) reconnect(ctx context.Context) error {
+	for wait := 0; wait < 150; wait++ {
+		e.mu.Lock()
+		connected := e.page != nil
+		e.mu.Unlock()
+		if connected {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	e.log.Warn("Spotify Web Player stayed disconnected; restarting its browser")
+	e.Close()
+	return e.Start(ctx)
+}

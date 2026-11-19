@@ -7,7 +7,13 @@
   window.__mspHostPost = json => window.postMessage({ __ryotunes: 'up', json }, location.origin);
   window.addEventListener('message', event => {
     const data = event.data;
-    if (event.source !== window || !data || data.__ryotunes !== 'down') return;
+    if (event.source !== window || !data) return;
+    if (data.__ryotunes === 'reannounce') {
+      // relay.js connected again: Ryotunes waits for the bridge's ready.
+      if (window.Myspoti && typeof window.Myspoti.announce === 'function') window.Myspoti.announce();
+      return;
+    }
+    if (data.__ryotunes !== 'down') return;
     if (window.Myspoti && typeof window.Myspoti.call === 'function') {
       // The bridge posts the result (or error) itself, with this id.
       window.Myspoti.call(data.id, data.method, data.args).catch(() => {});

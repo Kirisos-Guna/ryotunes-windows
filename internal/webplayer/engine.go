@@ -509,6 +509,9 @@ func (e *Engine) call(ctx context.Context, method string, args any) (json.RawMes
 	if err := e.Start(ctx); err != nil {
 		return nil, err
 	}
+	if err := e.reconnect(ctx); err != nil {
+		return nil, err
+	}
 	if args == nil {
 		args = map[string]any{}
 	}

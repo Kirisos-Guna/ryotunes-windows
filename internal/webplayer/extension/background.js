@@ -174,6 +174,13 @@ function reloadUnconnectedPlayer() {
 }
 setTimeout(reloadUnconnectedPlayer, 3000);
 
+// An alarm wakes the service worker if the browser stopped it (idle, sleep):
+// timers do not survive that.
+chrome.alarms.create('ryotunes-keepalive', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => {
+  if (!isOpen()) connect();
+});
+
 // An open WebSocket with traffic keeps the service worker alive.
 setInterval(() => {
   if (isOpen()) send({ type: 'ping' });
