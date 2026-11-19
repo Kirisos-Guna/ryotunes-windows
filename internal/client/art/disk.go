@@ -39,11 +39,16 @@ type diskEntry struct {
 	access time.Time
 }
 
+const diskArtworkVersion = "/sized-1"
+
 func diskArtworkName(key cacheKey) string {
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(key.size))
 	name := make([]byte, 0, len(key.url)+1+len(size))
 	name = append(append(append(name, key.url...), 0), size[:]...)
+	// Covers saved before sizedSourceURL were often a small picture blown
+	// up; this marker leaves them unused (and pruned in time).
+	name = append(name, diskArtworkVersion...)
 	sum := sha256.Sum256(name)
 	return hex.EncodeToString(sum[:])
 }

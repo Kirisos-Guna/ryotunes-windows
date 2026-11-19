@@ -699,7 +699,7 @@ func (c *Cache) load(ctx context.Context, rawURL string, size int, needSample bo
 	if strings.HasPrefix(rawURL, model.CollageThumbnailPrefix) {
 		return nil, artworkSample{}, errors.New("malformed artwork collage")
 	}
-	img, err := c.loadSource(ctx, rawURL)
+	img, err := c.loadSized(ctx, rawURL, size)
 	if err != nil {
 		return nil, artworkSample{}, err
 	}
@@ -726,7 +726,7 @@ func (c *Cache) loadCollage(ctx context.Context, urls [4]string, size int, needS
 		if strings.HasPrefix(source, model.CollageThumbnailPrefix) {
 			return nil, artworkSample{}, errors.New("nested artwork collage")
 		}
-		img, err := c.loadSource(ctx, source)
+		img, err := c.loadSized(ctx, source, max(widths[i], heights[i]))
 		if err != nil {
 			return nil, artworkSample{}, err
 		}
@@ -738,6 +738,19 @@ func (c *Cache) loadCollage(ctx context.Context, urls [4]string, size int, needS
 		return canvas, sampleArtwork(canvas), nil
 	}
 	return canvas, artworkSample{}, nil
+}
+
+// loadSized loads the service's variant of the picture for size pixels
+// (sizedSourceURL), and the URL as given if that variant fails.
+func (c *Cache) loadSized(ctx context.Context, rawURL string, size int) (image.Image, error) {
+	if sized := sizedSourceURL(rawURL, size); sized != rawURL {
+		if img, err := c.loadSource(ctx, sized); err == nil {
+			return img, nil
+		} else if ctx.Err() != nil {
+			return nil, err
+		}
+	}
+	return c.loadSource(ctx, rawURL)
 }
 
 func (c *Cache) loadSource(ctx context.Context, rawURL string) (image.Image, error) {
