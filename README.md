@@ -30,6 +30,9 @@ Ryotunes never uses your everyday browser, its tabs or its sign-ins.
 - Premium and Free accounts both play. Premium has no ads. On a Free account
   Spotify decides when to play an ad, and it may be rare; when one plays,
   Ryotunes waits for the break and then carries on with your song.
+- The player uses Brave when it is installed, else Microsoft Edge or Chrome.
+  Brave's built-in ad blocking may stop some of Spotify's ads on a Free
+  account, but not all: only Premium is free of ads.
 - Home is your own Spotify Home. Album, artist and search pages, saved albums
   and followed artists are read through the Web Player too, so they work while
   Spotify rate-limits its public Web API.
