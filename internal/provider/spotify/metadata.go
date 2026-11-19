@@ -122,7 +122,28 @@ func countLabel(count uint64) *string {
 	if count == 0 {
 		return nil
 	}
-	return new(strconv.FormatUint(count, 10))
+	return new(groupDigits(count))
+}
+
+// groupDigits writes 64382057 as "64,382,057", as Spotify shows counts.
+func groupDigits(count uint64) string {
+	digits := strconv.FormatUint(count, 10)
+	var out strings.Builder
+	for i, digit := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			out.WriteByte(',')
+		}
+		out.WriteRune(digit)
+	}
+	return out.String()
+}
+
+// songCount labels a playlist's length.
+func songCount(n int) *string {
+	if n == 1 {
+		return new("1 song")
+	}
+	return new(strconv.Itoa(n) + " songs")
 }
 
 func bareID(value, kind string) (string, error) {

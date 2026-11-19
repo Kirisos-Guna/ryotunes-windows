@@ -64,6 +64,10 @@ func (c *Client) SignIn(ctx context.Context) (SignInFlow, error) {
 	c.signInMu.Lock()
 	if c.signingIn {
 		c.signInMu.Unlock()
+		if opener, ok := c.cookies.(signInOpener); ok {
+			opener.RaiseSignIn() // its window is already open: show it again
+			return SignInFlow{}, nil
+		}
 		return SignInFlow{URL: youtubeSignInURL}, nil
 	}
 	c.signingIn = true
@@ -81,12 +85,28 @@ func (c *Client) SignIn(ctx context.Context) (SignInFlow, error) {
 	}
 	c.warnCookieCandidateFailures(failures, nil)
 
+	// On Windows the listener signs in in a window of Ryotunes' own browser
+	// (see package webcookies), not in their own browser.
+	url := youtubeSignInURL
+	closeWindow := func() {}
+	if opener, ok := c.cookies.(signInOpener); ok {
+		closeFn, err := opener.OpenSignIn(ctx, youtubeAccountsURL)
+		if err != nil {
+			c.signInMu.Lock()
+			c.signingIn = false
+			c.signInMu.Unlock()
+			return SignInFlow{}, err
+		}
+		url, closeWindow = "", closeFn
+	}
+
 	done := make(chan error, 1)
 	flowCtx, cancel := context.WithCancel(c.ctx)
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		defer cancel()
+		defer closeWindow()
 		err := c.watchSignIn(flowCtx, stores, refused)
 		c.signInMu.Lock()
 		c.signingIn = false
@@ -94,8 +114,17 @@ func (c *Client) SignIn(ctx context.Context) (SignInFlow, error) {
 		done <- err
 		close(done)
 	}()
-	return SignInFlow{URL: youtubeSignInURL, Done: done}, nil
+	return SignInFlow{URL: url, Done: done}, nil
 }
+
+// signInOpener is a cookie source that opens its own sign-in window.
+type signInOpener interface {
+	OpenSignIn(ctx context.Context, url string) (close func(), err error)
+	RaiseSignIn()
+}
+
+// youtubeAccountsURL signs in to Google and lands on YouTube Music.
+const youtubeAccountsURL = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F"
 
 type cookieCandidateFailure struct {
 	candidate cookieCandidate

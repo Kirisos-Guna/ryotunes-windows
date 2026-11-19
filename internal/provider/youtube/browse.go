@@ -281,6 +281,7 @@ func (c *Client) Album(ctx context.Context, id string) (model.AlbumPage, error) 
 		return model.AlbumPage{}, err
 	}
 	page := parsePlaylistPage(root)
+	fillAlbumArtist(root, id, &page)
 	audioPlaylistID := ""
 	walkMaps(root, func(m map[string]any) {
 		if audioPlaylistID == "" {
@@ -310,6 +311,59 @@ func (c *Client) Album(ctx context.Context, id string) (model.AlbumPage, error) 
 		}
 	}
 	return page, nil
+}
+
+// fillAlbumArtist reads the album's artist from YouTube Music's current
+// album header (musicResponsiveHeaderRenderer: the artist is its
+// "straplineTextOne"), shows it as the page subtitle, and gives it, with the
+// album, to tracks whose rows name no artist, as album rows do.
+func fillAlbumArtist(root any, albumID string, page *model.AlbumPage) {
+	var runs []model.Artist
+	walkMaps(root, func(m map[string]any) {
+		header, ok := m["musicResponsiveHeaderRenderer"].(map[string]any)
+		if !ok || runs != nil {
+			return
+		}
+		strapline, _ := header["straplineTextOne"].(map[string]any)
+		items, _ := strapline["runs"].([]any)
+		for _, item := range items {
+			run, _ := item.(map[string]any)
+			text, _ := run["text"].(string)
+			if strings.TrimSpace(text) == "" || strings.TrimSpace(text) == "&" || strings.TrimSpace(text) == "," {
+				continue
+			}
+			entry := model.Artist{Text: text}
+			if _, browseID, _ := endpointIDs(run); strings.HasPrefix(browseID, "UC") {
+				entry.ID = &browseID
+			}
+			runs = append(runs, entry)
+		}
+	})
+	if len(runs) == 0 {
+		return
+	}
+	names := make([]string, 0, len(runs))
+	for _, run := range runs {
+		names = append(names, run.Text)
+	}
+	artists := strings.Join(names, ", ")
+	if page.Subtitle == nil || strings.TrimSpace(*page.Subtitle) == "" || !strings.Contains(*page.Subtitle, names[0]) {
+		page.Subtitle = &artists
+	}
+	for i := range page.Items {
+		track := &page.Items[i]
+		if strings.TrimSpace(track.Artists) == "" {
+			track.Artists = artists
+			track.ArtistRuns = runs
+			track.ArtistID = runs[0].ID
+		}
+		if track.Album == nil && page.Title != nil {
+			track.Album = page.Title
+		}
+		if track.AlbumID == nil {
+			track.AlbumID = &albumID
+		}
+	}
 }
 
 // Artist returns an artist header, top tracks, and card sections.

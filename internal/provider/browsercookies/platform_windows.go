@@ -19,12 +19,23 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// readOtherBrowsers is off: see platformRoots. Tests turn it on.
+var readOtherBrowsers = false
+
 // platformRoots lists the Windows browser profile roots. Each root sits a
 // few levels above the cookie store so Discover's depth limit still applies:
 //
 //	Firefox   %APPDATA%\Mozilla\Firefox\Profiles\<profile>\cookies.sqlite
 //	Chromium  %LOCALAPPDATA%\<vendor>\User Data\<profile>\Network\Cookies
 func platformRoots() ([]string, bool) {
+	// Ryotunes does not read other browsers' cookie stores on Windows:
+	// decrypting Chromium's cookie key with DPAPI is what credential stealers
+	// do, and Windows Security stops the daemon for it
+	// (Behavior:Win32/WebBrowserCredAccess). Sessions come from Ryotunes' own
+	// browser instead (package webcookies).
+	if !readOtherBrowsers {
+		return nil, true
+	}
 	roaming := os.Getenv("APPDATA")
 	local := os.Getenv("LOCALAPPDATA")
 	var roots []string

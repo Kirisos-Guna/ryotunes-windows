@@ -24,6 +24,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/netx"
 	"github.com/ryoku-dev/ryotunes/internal/provider"
 	"github.com/ryoku-dev/ryotunes/internal/provider/browsercookies"
+	"github.com/ryoku-dev/ryotunes/internal/provider/webcookies"
 )
 
 const (
@@ -125,6 +126,9 @@ func New(o Options) (*Client, error) {
 	clientCtx, cancel := context.WithCancel(context.Background())
 	if o.Cookies == nil {
 		o.Cookies = systemCookies{}
+		if source := webcookies.New(); source != nil {
+			o.Cookies = source // Windows: Ryotunes' own browser
+		}
 	}
 	if o.Bus == nil {
 		o.Bus = bus.Discard

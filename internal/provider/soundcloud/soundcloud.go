@@ -24,6 +24,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/netx"
 	"github.com/ryoku-dev/ryotunes/internal/protocol"
 	baseprovider "github.com/ryoku-dev/ryotunes/internal/provider"
+	"github.com/ryoku-dev/ryotunes/internal/provider/webcookies"
 )
 
 const (
@@ -93,6 +94,9 @@ func New(o Options) (*Provider, error) {
 	}
 	if o.Cookies == nil {
 		o.Cookies = systemCookies{}
+		if source := webcookies.New(); source != nil {
+			o.Cookies = source // Windows: Ryotunes' own browser
+		}
 	}
 	if o.APIBase == "" {
 		o.APIBase = apiBase

@@ -210,3 +210,26 @@ func closeLeftovers(profile string) {
 		}
 	}
 }
+
+const swRestore = 9
+
+// raiseSignInWindows restores, centres and brings forward pid's windows
+// that are not the parked player: the browser opens a new window minimised,
+// as its process belongs to the hidden player, and Windows does not let it
+// come forward by itself.
+func raiseSignInWindows(pid int) bool {
+	raised := false
+	for _, hwnd := range browserWindows(pid) {
+		ex, _, _ := procGetWindowLongPtr.Call(hwnd, gwlExStyle)
+		if ex&wsExToolWindow != 0 {
+			continue // the player
+		}
+		procShowWindow.Call(hwnd, swRestore)
+		x := max(0, (systemMetric(smCXScreen)-windowWidth)/2)
+		y := max(0, (systemMetric(smCYScreen)-windowHeight)/2)
+		setWindowPos(hwnd, x, y, windowWidth, windowHeight, swpNoZOrder)
+		procSetForegroundWindow.Call(hwnd)
+		raised = true
+	}
+	return raised
+}

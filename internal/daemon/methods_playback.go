@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/ryoku-dev/ryotunes/internal/model"
 	"github.com/ryoku-dev/ryotunes/internal/protocol"
@@ -236,6 +237,13 @@ func rateOnDevice(ctx context.Context, a *App, p protocol.RateParams) error {
 func providerForID(a *App, id string) provider.Provider {
 	if p, ok := a.Providers.ForTrack(id); ok {
 		return p
+	}
+	// Device playlists (Liked Songs among them) belong to the local provider,
+	// whichever provider is selected: YouTube answered them "400 Bad Request".
+	if strings.HasPrefix(id, model.LocalPlaylistPrefix) {
+		if p, ok := a.Providers.Get(model.ProviderLocal); ok {
+			return p
+		}
 	}
 	a.mu.Lock()
 	selected := a.provider

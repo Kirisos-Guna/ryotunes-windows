@@ -22,3 +22,5 @@ func browserLaunchArgs() []string { return nil }
 func closeBrowser(int) {}
 
 func closeLeftovers(string) {}
+
+func raiseSignInWindows(int) bool { return false }

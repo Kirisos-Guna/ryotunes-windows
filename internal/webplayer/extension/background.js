@@ -52,7 +52,13 @@ async function connect() {
     pending = [];
   };
   ws.onmessage = event => {
-    if (socket === ws && page) page.postMessage(JSON.parse(event.data));
+    if (socket !== ws) return;
+    const message = JSON.parse(event.data);
+    if (browserCommands[message.type]) {
+      runBrowserCommand(message);
+    } else if (page) {
+      page.postMessage(message);
+    }
   };
   ws.onclose = () => {
     if (socket !== ws) return; // an older socket: nothing to do
@@ -60,6 +66,84 @@ async function connect() {
     scheduleConnect();
   };
   ws.onerror = () => {};
+}
+
+// Commands the extension runs itself, for signing in to other services in
+// Ryotunes' own browser profile: the listener signs in there, in a window
+// Ryotunes opens, and Ryotunes takes that site's session from the browser's
+// cookie API. Ryotunes never reads other browsers' cookie files.
+const cookieSites = ['youtube.com', 'soundcloud.com'];
+const browserCommands = {
+  // {domain}: that site's cookies in this profile.
+  cookies: async message => {
+    const domain = String(message.domain || '');
+    if (!cookieSites.some(site => domain === site || domain.endsWith('.' + site))) {
+      throw new Error('cookies of ' + domain + ' are not shared');
+    }
+    const cookies = await chrome.cookies.getAll({ domain });
+    return cookies.map(c => ({
+      name: c.name, value: c.value, domain: c.domain, path: c.path,
+      expires: c.expirationDate || 0, partitioned: !!c.partitionKey,
+    }));
+  },
+  // {url, left, top, width, height}: a normal, focused window for signing in.
+  // Centred on the primary monitor, in the browser's own (scaled) units.
+  openWindow: async message => {
+    let width = message.width || 1000, height = message.height || 760, left, top;
+    try {
+      const displays = await chrome.system.display.getInfo();
+      const area = (displays.find(d => d.isPrimary) || displays[0]).workArea;
+      width = Math.min(width, area.width);
+      height = Math.min(height, area.height);
+      left = area.left + Math.round((area.width - width) / 2);
+      top = area.top + Math.round((area.height - height) / 2);
+    } catch (e) {
+      // no display info: the browser places the window
+    }
+    const created = await chrome.windows.create({
+      url: String(message.url), type: 'normal', focused: true, left, top, width, height,
+    });
+    try {
+      await chrome.windows.update(created.id, { state: 'normal', focused: true, drawAttention: true });
+    } catch (e) {
+      // Ryotunes restores it from outside too
+    }
+    return created.id;
+  },
+  // {windowId}. Its tabs are closed one by one: closing a window of several
+  // tabs makes Brave ask first, and the window would stay open.
+  closeWindow: async message => closeWindowTabs(message.windowId),
+};
+
+async function closeWindowTabs(windowId) {
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({ windowId });
+  } catch (e) {
+    return false; // the listener closed it
+  }
+  if (tabs.length) await chrome.tabs.remove(tabs.map(tab => tab.id));
+  return true;
+}
+
+// The browser restores the windows of its last session, sign-in windows
+// included: close all but the Web Player's when it starts.
+chrome.runtime.onStartup.addListener(async () => {
+  const windows = await chrome.windows.getAll({ populate: true });
+  for (const w of windows) {
+    const player = w.tabs.some(tab => String(tab.url || tab.pendingUrl || '').startsWith('https://open.spotify.com/'));
+    if (w.type === 'normal' && !player) await closeWindowTabs(w.id);
+  }
+});
+
+async function runBrowserCommand(message) {
+  let reply;
+  try {
+    reply = { type: 'result', id: message.id, ok: true, value: await browserCommands[message.type](message) };
+  } catch (e) {
+    reply = { type: 'result', id: message.id, ok: false, error: String(e && e.message || e) };
+  }
+  send({ type: 'page', json: JSON.stringify(reply) });
 }
 
 chrome.runtime.onConnect.addListener(newPage => {

@@ -34,7 +34,7 @@ func (p *Spotify) Playlist(ctx context.Context, id string, ordering model.Playli
 			return model.PlaylistPage{}, mapProviderError(err)
 		}
 		title := "Liked Songs"
-		return model.PlaylistPage{Title: &title, Items: liked, Owned: true}, nil
+		return model.PlaylistPage{Title: &title, Subtitle: songCount(len(liked)), Items: liked, Owned: true}, nil
 	}
 	bare, err := bareID(id, "playlist")
 	if err != nil {
@@ -78,6 +78,7 @@ func (p *Spotify) Playlist(ctx context.Context, id string, ordering model.Playli
 		page.Items = append(page.Items, track)
 	}
 	sortPlaylist(page.Items, ordering, desc)
+	page.Subtitle = songCount(len(page.Items))
 	return page, nil
 }
 
@@ -196,19 +197,37 @@ func (p *Spotify) Library(ctx context.Context) (model.Library, error) {
 			return library, mapProviderError(likedErr)
 		}
 	}
-	albums, err := p.webSavedAlbums(ctx, sess)
+	albums, err := p.savedAlbums(ctx, sess)
 	if err == nil {
 		library.Albums = albums
 	} else {
 		p.log.Warn("Spotify saved albums failed", "error", err)
 	}
-	artists, err := p.webSavedArtists(ctx, sess)
+	artists, err := p.savedArtists(ctx, sess)
 	if err == nil {
 		library.Artists = artists
 	} else {
 		p.log.Warn("Spotify saved artists failed", "error", err)
 	}
 	return library, nil
+}
+
+// savedAlbums reads them as the Web Player does where it runs, else through
+// the Web API.
+func (p *Spotify) savedAlbums(ctx context.Context, sess *session.Session) ([]model.BrowseItem, error) {
+	if webPlayback() {
+		return p.libraryV3Items(ctx, sess, "Albums")
+	}
+	return p.webSavedAlbums(ctx, sess)
+}
+
+// savedArtists reads them as the Web Player does where it runs, else through
+// the Web API.
+func (p *Spotify) savedArtists(ctx context.Context, sess *session.Session) ([]model.BrowseItem, error) {
+	if webPlayback() {
+		return p.libraryV3Items(ctx, sess, "Artists")
+	}
+	return p.webSavedArtists(ctx, sess)
 }
 
 func mapRootlist(root *playlist4pb.SelectedListContent) []model.BrowseItem {

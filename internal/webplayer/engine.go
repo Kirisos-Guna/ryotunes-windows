@@ -110,6 +110,7 @@ type Engine struct {
 	ready     chan struct{}
 	readyDone bool
 	shown     bool
+	windows   int // sign-in windows OpenWindow opened: not parked
 	state     State
 	listeners []func(State)
 	nextID    int64
@@ -630,9 +631,11 @@ func (e *Engine) keepParked(cmd *exec.Cmd) {
 		case <-time.After(delay):
 		}
 		e.mu.Lock()
-		shown := e.shown
+		shown, signingIn := e.shown, e.windows > 0
 		e.mu.Unlock()
-		if !shown {
+		// While a sign-in window is open, nothing is parked: it would be
+		// parked too. The player's window stays where it already is.
+		if !shown && !signingIn {
 			showBrowser(pid, false)
 		}
 	}

@@ -586,7 +586,7 @@ func findHeaderText(root any, key string) string {
 		if result != "" {
 			return
 		}
-		for _, rendererKey := range []string{"musicDetailHeaderRenderer", "musicEditablePlaylistDetailHeaderRenderer", "musicImmersiveHeaderRenderer", "musicVisualHeaderRenderer"} {
+		for _, rendererKey := range []string{"musicDetailHeaderRenderer", "musicEditablePlaylistDetailHeaderRenderer", "musicImmersiveHeaderRenderer", "musicVisualHeaderRenderer", "musicResponsiveHeaderRenderer"} {
 			if renderer, ok := m[rendererKey].(map[string]any); ok {
 				result = deepText(renderer[key])
 			}

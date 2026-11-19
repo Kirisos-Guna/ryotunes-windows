@@ -84,6 +84,9 @@ func (p *Provider) SignIn(ctx context.Context) (string, error) {
 	if p.signingIn {
 		url := p.signInURL
 		p.mu.Unlock()
+		if opener, ok := p.cookies.(signInOpener); ok {
+			opener.RaiseSignIn() // its window is already open: show it again
+		}
 		return url, nil
 	}
 	p.signingIn = true
@@ -111,8 +114,29 @@ func (p *Provider) SignIn(ctx context.Context) (string, error) {
 	p.signInURL = soundCloudSignInURL
 	p.signInCancel = cancel
 	p.mu.Unlock()
+	// On Windows the listener signs in in a window of Ryotunes' own browser
+	// (see package webcookies), not in their own browser.
+	url := soundCloudSignInURL
+	closeWindow := func() {}
+	if opener, ok := p.cookies.(signInOpener); ok {
+		closeFn, err := opener.OpenSignIn(ctx, soundCloudSignInURL)
+		if err != nil {
+			cancel()
+			p.mu.Lock()
+			if p.epoch == epoch {
+				p.signingIn, p.signInURL, p.signInCancel = false, "", nil
+			}
+			p.mu.Unlock()
+			return "", err
+		}
+		url, closeWindow = "", closeFn
+		p.mu.Lock()
+		p.signInURL = ""
+		p.mu.Unlock()
+	}
 	go func() {
 		defer cancel()
+		defer closeWindow()
 		defer func() {
 			p.mu.Lock()
 			if p.epoch == epoch {
@@ -160,7 +184,13 @@ func (p *Provider) SignIn(ctx context.Context) (string, error) {
 			}
 		}
 	}()
-	return soundCloudSignInURL, nil
+	return url, nil
+}
+
+// signInOpener is a cookie source that opens its own sign-in window.
+type signInOpener interface {
+	OpenSignIn(ctx context.Context, url string) (close func(), err error)
+	RaiseSignIn()
 }
 
 // candidateAttempts remembers, for the life of one sign-in flow, which tokens

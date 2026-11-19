@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -37,6 +38,39 @@ func Open(dirs Dirs, log *slog.Logger) (*Store, error) {
 	if err := adoptSiblingDatabase(dirs.Data, dbPath); err != nil {
 		return nil, err
 	}
+	db, err := openDatabase(dbPath)
+	if err != nil && corrupt(err) {
+		// A damaged database (the daemon was killed mid-write, or the disk
+		// failed) would keep Ryotunes from starting at all. Keep it aside for
+		// recovery and start with a fresh one.
+		aside := dbPath + ".damaged-" + time.Now().Format("20060102-150405")
+		if moveErr := moveDatabase(dbPath, aside); moveErr != nil {
+			return nil, fmt.Errorf("%w (and could not move it aside: %v)", err, moveErr)
+		}
+		log.Warn("database was damaged; kept it aside and started a fresh one", "error", err, "kept", aside)
+		db, err = openDatabase(dbPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	s := &Store{db: db, dirs: dirs, log: log, now: time.Now}
+	if err := s.loadSettings(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.pruneStartupCaches(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// openDatabase opens dbPath, creating it if needed, and checks it.
+func openDatabase(dbPath string) (*sql.DB, error) {
 	file, err := os.OpenFile(dbPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create database: %w", err)
@@ -63,20 +97,40 @@ func Open(dirs Dirs, log *slog.Logger) (*Store, error) {
 			return nil, fmt.Errorf("configure database: %w", err)
 		}
 	}
-	if err := migrate(db); err != nil {
+	var check string
+	if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("check database: %w", err)
 	}
-	s := &Store{db: db, dirs: dirs, log: log, now: time.Now}
-	if err := s.loadSettings(); err != nil {
+	if check != "ok" {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("check database: %w: %s", errDamaged, check)
 	}
-	if err := s.pruneStartupCaches(); err != nil {
-		db.Close()
-		return nil, err
+	return db, nil
+}
+
+var errDamaged = errors.New("database disk image is malformed")
+
+// corrupt reports SQLite finding the database damaged or not a database.
+func corrupt(err error) bool {
+	if errors.Is(err, errDamaged) {
+		return true
 	}
-	return s, nil
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "malformed") || strings.Contains(message, "file is not a database")
+}
+
+// moveDatabase renames the database and its WAL files to aside.
+func moveDatabase(dbPath, aside string) error {
+	if err := os.Rename(dbPath, aside); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(dbPath + suffix); err == nil {
+			_ = os.Rename(dbPath+suffix, aside+suffix)
+		}
+	}
+	return nil
 }
 
 // Close closes the SQLite connection.

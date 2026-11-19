@@ -45,7 +45,7 @@ Put `libmpv-2.dll` next to `ryotunesd.exe` and `yt-dlp.exe` on PATH or in a
 | Child processes | `Setsid` / `Setpgid`, `kill(-pgid)`, `setpriority` | `CREATE_NEW_PROCESS_GROUP`, `taskkill /T`, `BELOW_NORMAL_PRIORITY_CLASS` |
 | Opening folders and URLs | `xdg-open` | `url.dll,FileProtocolHandler` |
 | Discord Rich Presence | `$XDG_RUNTIME_DIR/discord-ipc-N` | `\\.\pipe\discord-ipc-N` |
-| Browser cookie import | Linux profile paths, `peanuts`/keyring AES-CBC | Windows profile paths, DPAPI-unwrapped AES-GCM `v10` keys, default browser from the registry |
+| YouTube / SoundCloud sign-in | Imports the session from the browsers' cookie stores (`peanuts`/keyring AES-CBC) | Never reads other browsers' cookies (Windows Security flags DPAPI cookie decryption as credential theft). The listener signs in in a window of Ryotunes' own browser profile, and Ryotunes' extension hands over the session through the browser's cookie API (`internal/provider/webcookies`, `internal/webplayer/browser.go`) |
 | Spotify decoders | go-librespot FLAC/MP3/Vorbis via CGO | `third_party/go-librespot` is vendored with `!cgo` stubs; Ryotunes plays Spotify audio through libmpv, so they are never used |
 | Self update | pacman / xbps / dnf via pkexec | Downloads this repository's `Ryotunes-Setup-<version>-x64.exe`, verifies its SHA-256 and runs it silently (`internal/update/windows.go`) |
 | Window maximize / fullscreen | Gio defaults | `third_party/gioui` is vendored with Windows fixes: maximize fills exactly the work area (no ghost caption buttons when the work area is inset), fullscreen covers the whole monitor, and the window opens centered inside the work area (a saved size that would not fit opens at 80% of it, `internal/platform/window_windows.go`) |

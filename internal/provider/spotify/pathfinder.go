@@ -33,6 +33,8 @@ var defaultPathfinderHashes = map[string]string{
 	// The personalized Home feed, from Myspoti's table of Web Player
 	// operations (base/api-spotify/src/main/resources/spotify/gql-ops.json).
 	"home": "5fb7da7a03ee2776c0670856609cb85a189a3cecc36cc160b91cde79063b9cf1",
+	// "Your Library", the same table.
+	"libraryV3": "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
 }
 
 type hashRegistry struct {
