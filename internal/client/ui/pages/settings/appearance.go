@@ -7,6 +7,7 @@ import (
 	"github.com/ryoku-dev/ryoku/docs/lithic/library/go/kit"
 	"github.com/ryoku-dev/ryoku/docs/lithic/library/go/palette"
 	libtheme "github.com/ryoku-dev/ryoku/docs/lithic/library/go/theme"
+	"github.com/ryoku-dev/ryotunes/internal/client/desktopstyle"
 	"github.com/ryoku-dev/ryotunes/internal/client/state"
 	"github.com/ryoku-dev/ryotunes/internal/client/ui/env"
 	"github.com/ryoku-dev/ryotunes/internal/client/ui/look"
@@ -114,7 +115,78 @@ func (p *page) layoutAppearance(gtx layout.Context, e *env.Env, snapshot state.S
 	)
 }
 
+var (
+	designLabels   = []string{"Lithic", "Material", "Adwaita", "Fluent"}
+	designStyles   = []design.Style{design.Lithic, design.Material, design.Adwaita, design.Fluent}
+	modeLabels     = []string{"Dark", "Light"}
+	contrastLabels = []string{"Standard", "High"}
+)
+
+// chooseLook reports that Ryotunes chooses the look itself; tests of the
+// Ryoku desktop's claims turn it off.
+var chooseLook = desktopstyle.Editable
+
+// layoutChosenLook is the desktop's look where Ryotunes chooses it itself
+// (Windows: no Ryoku Settings). The choices are written where Ryoku
+// Settings would write them (desktopstyle) and the window takes them on as
+// it would the desktop's. Colours and tint follow the wallpaper on a Ryoku
+// desktop only, so they are not offered.
+func (p *page) layoutChosenLook(gtx layout.Context, e *env.Env) layout.Dimensions {
+	p.newSlab()
+	desktop := e.Desktop()
+	apply := func(err error) {
+		if err != nil {
+			e.Toast("Could not save the look: "+err.Error(), env.ToastError)
+		}
+	}
+	choice := func(control *look.FlowChoice, labels []string, selected int, set func(int)) layout.Widget {
+		return func(gtx layout.Context) layout.Dimensions {
+			control.Labels = labels
+			control.Selected = selected
+			dims := control.Layout(gtx, e.Th)
+			if chosen, changed := control.Changed(); changed && chosen >= 0 && chosen < len(labels) {
+				set(chosen)
+			}
+			return dims
+		}
+	}
+	designIndex := 0
+	for index, style := range designStyles {
+		if style == desktop.Design {
+			designIndex = index
+		}
+	}
+	modeIndex := 0
+	if desktop.Mode == palette.Light {
+		modeIndex = 1
+	}
+	contrastIndex := 0
+	if desktop.Look.Contrast == palette.High {
+		contrastIndex = 1
+	}
+	return p.settingRows(gtx,
+		p.row(e.Th, rowSpec{
+			title: claimTitles[claimDesign], detail: "The shape of Ryotunes: Lithic, Material, Adwaita or Fluent", wide: true,
+			control: choice(&p.appearance.design, designLabels, designIndex, func(i int) { apply(desktopstyle.SetDesign(designStyles[i])) }),
+		}),
+		p.row(e.Th, rowSpec{
+			title: claimTitles[claimMode], detail: "The light or the dark look",
+			control: choice(&p.appearance.mode, modeLabels, modeIndex, func(i int) { apply(desktopstyle.SetLight(i == 1)) }),
+		}),
+		p.row(e.Th, rowSpec{
+			title: claimTitles[claimContrast], detail: claimDetails[claimContrast],
+			control: choice(&p.appearance.contrast, contrastLabels, contrastIndex, func(i int) { apply(desktopstyle.SetHighContrast(i == 1)) }),
+		}),
+		p.toggleRow(e.Th, &p.appearance.reduceMotion, desktop.ReduceMotion, false, rowSpec{
+			title: claimTitles[claimMotion], detail: "Stills Ryotunes' animations",
+		}, func(on bool) { apply(desktopstyle.SetReduceMotion(on)) }),
+	)
+}
+
 func (p *page) layoutStyleClaims(gtx layout.Context, e *env.Env) layout.Dimensions {
+	if chooseLook() {
+		return p.layoutChosenLook(gtx, e)
+	}
 	p.newSlab()
 	rows := make([]layout.Widget, 0, claimCount+1)
 	for claim := range claimCount {

@@ -104,6 +104,10 @@ type appearanceControls struct {
 	claims    styleClaims
 	claimRoll [claimCount]look.CountRoll
 	handoff   kit.Plaque
+	// the look Ryotunes chooses itself where there is no Ryoku desktop
+	// (desktopstyle)
+	design, mode, contrast look.FlowChoice
+	reduceMotion           kit.Toggle
 }
 
 type playbackControls struct {

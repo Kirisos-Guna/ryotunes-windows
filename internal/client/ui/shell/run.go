@@ -224,7 +224,12 @@ func startRuntime(options Options) (*clientRuntime, error) {
 	runtime.theme = look.NewThemeFor(palette.ReadDesktop(), density, snapshot.Provider)
 
 	go func() {
-		_ = palette.WatchDesktop(runtime.ctx, runtime.offerDesktop)
+		if err := palette.WatchDesktop(runtime.ctx, runtime.offerDesktop); err != nil && runtime.ctx.Err() == nil {
+			// No file watching here (Windows): read the look again now and
+			// then, so a choice in Settings › Appearance (desktopstyle)
+			// shows at once.
+			pollDesktop(runtime.ctx, runtime.offerDesktop)
+		}
 	}()
 	go runtime.drain()
 	return runtime, nil
@@ -279,3 +284,24 @@ func (r *clientRuntime) drain() {
 		}
 	}
 }
+
+// pollDesktop reads the desktop's look every desktopPoll and offers each
+// change, where palette.WatchDesktop cannot watch its files.
+func pollDesktop(ctx context.Context, offer func(palette.Desktop)) {
+	last := palette.ReadDesktop()
+	ticker := time.NewTicker(desktopPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if desktop := palette.ReadDesktop(); !desktop.Equal(last) {
+			last = desktop
+			offer(desktop)
+		}
+	}
+}
+
+const desktopPoll = 400 * time.Millisecond
