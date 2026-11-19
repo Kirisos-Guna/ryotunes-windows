@@ -140,7 +140,17 @@ func (q *Queue) Playback() model.PlaybackSnapshot {
 
 // Play replaces the context with one seed while retaining upcoming manual rows.
 func (q *Queue) Play(ctx context.Context, item model.Track) error {
+	q.forgetResume()
 	return q.play(ctx, item, false)
+}
+
+// forgetResume drops the position restored from the last session. It is for
+// resuming that song (the play button); a song or playlist the listener
+// starts plays from its beginning, also when it is the same song.
+func (q *Queue) forgetResume() {
+	q.mu.Lock()
+	q.pendingSeek, q.pendingSeekID = 0, ""
+	q.mu.Unlock()
 }
 
 func (q *Queue) play(ctx context.Context, item model.Track, paused bool) error {
@@ -176,6 +186,7 @@ func (q *Queue) PlayPlaylist(ctx context.Context, items []model.Track, start *in
 	if index < 0 || index >= len(items) {
 		return errors.New("queue index out of range")
 	}
+	q.forgetResume()
 	items, index, _ = dropUnplayable(cloneTracks(items), index, index)
 	if index < 0 {
 		return errNothingToPlay
@@ -207,6 +218,7 @@ func (q *Queue) PlayPlaylist(ctx context.Context, items []model.Track, start *in
 
 // PlayIndex starts one existing queue row.
 func (q *Queue) PlayIndex(ctx context.Context, index int) error {
+	q.forgetResume()
 	return q.playIndex(ctx, index, false)
 }
 

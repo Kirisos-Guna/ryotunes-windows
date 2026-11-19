@@ -35,10 +35,6 @@ type activeStream struct {
 // Resolve implements provider.Provider by exposing decrypted Ogg Vorbis on loopback.
 func (p *Spotify) Resolve(ctx context.Context, track model.Track, quality model.Quality) (model.Stream, error) {
 	p.closeActiveStream()
-	sess, err := p.session(ctx)
-	if err != nil {
-		return model.Stream{}, err
-	}
 	id, bare, err := trackID(track.VideoID)
 	if err != nil {
 		return model.Stream{}, fmt.Errorf("%w: %v", providerapi.ErrUnavailable, err)
@@ -46,7 +42,13 @@ func (p *Spotify) Resolve(ctx context.Context, track model.Track, quality model.
 	if webplayer.Default() != nil {
 		// Spotify refuses librespot the audio keys; its own Web Player
 		// plays the track instead (internal/webplayer, internal/player/web.go).
+		// It needs no librespot session, whose sign-in is still under way
+		// when Ryotunes has just opened.
 		return model.Stream{URL: "webplayer:spotify:track:" + bare, Codec: "webplayer"}, nil
+	}
+	sess, err := p.session(ctx)
+	if err != nil {
+		return model.Stream{}, err
 	}
 
 	var files audiofilespb.AudioFilesExtensionResponse

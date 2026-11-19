@@ -34,6 +34,7 @@ import (
 	"github.com/ryoku-dev/ryotunes/internal/queue"
 	"github.com/ryoku-dev/ryotunes/internal/store"
 	"github.com/ryoku-dev/ryotunes/internal/version"
+	"github.com/ryoku-dev/ryotunes/internal/webplayer"
 )
 
 // New constructs a complete daemon application. Network-backed restoration is
@@ -186,6 +187,23 @@ func New(ctx context.Context, bootstrapLog *slog.Logger) (_ *App, err error) {
 	a.background.Add(1)
 	go func() {
 		defer a.background.Done()
+		// Start Spotify's Web Player while the account signs in: launching
+		// the browser and loading the player takes a few seconds, which the
+		// first song otherwise waited for.
+		if engine := webplayer.Default(); engine != nil && a.Spotify.HasStoredCredentials() {
+			go func() {
+				ctx, cancel := context.WithTimeout(appCtx, time.Minute)
+				defer cancel()
+				if err := engine.Start(ctx); err != nil {
+					if !errors.Is(err, context.Canceled) {
+						log.Debug("Spotify Web Player warm-up failed", "error", err)
+					}
+					return
+				}
+				// The sign-in check too, which the first song otherwise waits for.
+				_, _ = engine.SignedIn(ctx)
+			}()
+		}
 		if restoreErr := a.Spotify.Restore(appCtx); restoreErr != nil && !errors.Is(restoreErr, context.Canceled) {
 			log.Warn("Spotify credential restore failed", "error", restoreErr)
 		}

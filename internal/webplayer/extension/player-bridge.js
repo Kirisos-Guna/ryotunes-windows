@@ -359,7 +359,8 @@
       if (Number.isInteger(a.index)) skipTo.index = a.index;
       const extra = {};
       if (Object.keys(skipTo).length) extra.skipTo = skipTo;
-      if (a.positionMs) extra.seekTo = a.positionMs;
+      // Ryotunes: 0 too, or Spotify resumes the song where it last stopped.
+      if (Number.isFinite(a.positionMs) && a.positionMs >= 0) extra.seekTo = a.positionMs;
       // A given order (sorted playlist): the context plays as one page of those songs.
       const context = Array.isArray(a.order) && a.order.length
         ? { uri: a.contextUri, url: 'context://' + a.contextUri + '?order=' + Date.now(), pages: [{ items: a.order.map(uri => ({ uri })) }] }

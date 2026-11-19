@@ -192,8 +192,14 @@ func (p *Spotify) session(ctx context.Context) (*session.Session, error) {
 	premium := p.premium
 	recheck := p.profileRecheck
 	p.mu.RUnlock()
+	if sess == nil && p.waitForRestore(ctx) {
+		p.mu.RLock()
+		sess, premium, recheck = p.sess, p.premium, p.profileRecheck
+		p.mu.RUnlock()
+	}
 	if sess == nil {
-		return nil, providerapi.ErrSignInRequired
+		// Named, so the message reads "Sign in to Spotify", not YouTube Music.
+		return nil, fmt.Errorf("Spotify: %w", providerapi.ErrSignInRequired)
 	}
 	if !recheck.IsZero() && !time.Now().Before(recheck) {
 		premium = p.recheckProfile(ctx, sess, spclientToken(sess))
@@ -208,6 +214,31 @@ func (p *Spotify) session(ctx context.Context) (*session.Session, error) {
 		return sess, nil
 	}
 }
+
+// waitForRestore waits, while the daemon is still restoring the stored
+// sign-in (it holds restoreMu), for that to finish: Ryotunes opened and
+// played at once, and the first song failed as if signed out.
+func (p *Spotify) waitForRestore(ctx context.Context) bool {
+	if !fileExists(p.credPath) {
+		return false
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for !p.restoreMu.TryLock() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	p.restoreMu.Unlock()
+	return true
+}
+
+// HasStoredCredentials reports a stored Spotify sign-in.
+func (p *Spotify) HasStoredCredentials() bool { return fileExists(p.credPath) }
 
 // recheckProfile asks for the product once more while it is unknown. It
 // never signs out: a failure only moves the next attempt.

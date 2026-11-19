@@ -110,11 +110,13 @@ type Engine struct {
 	ready     chan struct{}
 	readyDone bool
 	shown     bool
-	windows   int // sign-in windows OpenWindow opened: not parked
-	state     State
-	listeners []func(State)
-	nextID    int64
-	pending   map[int64]chan callResult
+	// signedInUntil caches a sign-in check (signedIn).
+	signedInUntil time.Time
+	windows       int // sign-in windows OpenWindow opened: not parked
+	state         State
+	listeners     []func(State)
+	nextID        int64
+	pending       map[int64]chan callResult
 }
 
 type callResult struct {
@@ -384,6 +386,7 @@ func (e *Engine) newPage() {
 		e.ready, e.readyDone = make(chan struct{}), false
 	}
 	e.state = State{}
+	e.signedInUntil = time.Time{}
 	e.mu.Unlock()
 }
 
@@ -554,6 +557,25 @@ func (e *Engine) SignedIn(ctx context.Context) (bool, error) {
 }
 
 func (e *Engine) signedIn(ctx context.Context) (bool, error) {
+	// Asking the page for its token took about three seconds, before every
+	// song. A sign-in seen stays good until the page reloads (newPage) or
+	// for half an hour.
+	e.mu.Lock()
+	known := time.Now().Before(e.signedInUntil)
+	e.mu.Unlock()
+	if known {
+		return true, nil
+	}
+	signedIn, err := e.askSignedIn(ctx)
+	if err == nil && signedIn {
+		e.mu.Lock()
+		e.signedInUntil = time.Now().Add(30 * time.Minute)
+		e.mu.Unlock()
+	}
+	return signedIn, err
+}
+
+func (e *Engine) askSignedIn(ctx context.Context) (bool, error) {
 	raw, err := e.call(ctx, "token.get", nil)
 	if err != nil {
 		return false, err

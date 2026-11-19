@@ -34,8 +34,10 @@ type webSession struct {
 	ended   bool // EndOfFile was sent for it
 	volume  float64
 	started time.Time
-	lastPos float64 // our song's last position while it played, seconds
-	adSeen  bool    // an ad break ran since our song was requested
+	// pausedAt is when the listener last paused (webPause).
+	pausedAt time.Time
+	lastPos  float64 // our song's last position while it played, seconds
+	adSeen   bool    // an ad break ran since our song was requested
 }
 
 func (p *Player) webActive() bool {
@@ -117,19 +119,59 @@ func (p *Player) startWeb(ctx context.Context, s model.Stream, startAt float64, 
 		}
 		return webplayer.ErrSignInRequired
 	}
-	if _, err := engine.Call(ctx, "volume.set", map[string]any{"level": volume}); err != nil {
-		p.log.Debug("web player volume", "error", err)
-	}
-	args := map[string]any{"contextUri": uri}
-	if startAt > 0 {
-		args["positionMs"] = int64(startAt * 1000)
-	}
+	// Always say where to start, 0 included: without it Spotify resumes the
+	// song where this account last stopped it, not from the beginning.
+	args := map[string]any{"contextUri": uri, "positionMs": int64(startAt * 1000)}
 	if _, err := engine.Call(ctx, "player.play", args); err != nil {
 		p.deactivateWeb()
 		return err
 	}
-	p.resumeStalledAd(ctx)
+	p.setWebVolume(volume)
+	go func() {
+		// It waits a moment for an ad break to show; the song need not.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		p.resumeStalledAd(ctx)
+	}()
+	go p.confirmWebStart(uri, args)
 	return nil
+}
+
+// confirmWebStart plays the song again if the page ends up paused on it
+// right after it was asked to play: a page that has just loaded restores the
+// account's last session (that song, paused where it stopped) a moment
+// later, over Ryotunes' request, and the first song did not start.
+func (p *Player) confirmWebStart(uri string, args map[string]any) {
+	time.Sleep(1500 * time.Millisecond)
+	p.web.mu.Lock()
+	started, pausedByListener := p.web.started, p.web.pausedAt.After(p.web.started)
+	current := p.web.active && p.web.uri == uri
+	p.web.mu.Unlock()
+	state := p.web.engine.State()
+	if !current || pausedByListener || time.Since(started) > 5*time.Second || isAd(state) ||
+		state.Track == nil || state.Track.URI != uri || !state.IsPaused {
+		return
+	}
+	p.log.Info("Spotify's page restored its own session over the song; playing it again")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := p.web.engine.Call(ctx, "player.play", args); err != nil {
+		p.log.Warn("Spotify Web Player command failed", "method", "player.play", "error", err)
+	}
+}
+
+// setWebVolume sets the page's volume once it plays. Spotify answers a
+// volume change only while it has an active device: asked before the first
+// song of a session, it never answered, and the song waited 30 seconds for
+// that call to time out.
+func (p *Player) setWebVolume(level float64) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := p.web.engine.Call(ctx, "volume.set", map[string]any{"level": level}); err != nil {
+			p.log.Debug("web player volume", "error", err)
+		}
+	}()
 }
 
 func (p *Player) deactivateWeb() {
@@ -193,14 +235,11 @@ func (p *Player) webReload(resume bool) error {
 		}
 		return webplayer.ErrSignInRequired
 	}
-	_, _ = engine.Call(ctx, "volume.set", map[string]any{"level": volume})
-	args := map[string]any{"contextUri": uri}
-	if position := p.Position(); position > 0 {
-		args["positionMs"] = int64(position * 1000)
-	}
+	args := map[string]any{"contextUri": uri, "positionMs": int64(max(0, p.Position()) * 1000)}
 	if _, err := engine.Call(ctx, "player.play", args); err != nil {
 		return err
 	}
+	p.setWebVolume(volume)
 	if !resume {
 		_, err = engine.Call(ctx, "player.pause", nil)
 		return err
@@ -232,6 +271,9 @@ func (p *Player) webResume() error {
 
 // webPause pauses; a page without our track plays nothing to pause.
 func (p *Player) webPause() error {
+	p.web.mu.Lock()
+	p.web.pausedAt = time.Now()
+	p.web.mu.Unlock()
 	if !p.webOnTrack() {
 		if !p.paused.Swap(true) {
 			p.emit(Event{Kind: PauseChanged, Paused: true})
