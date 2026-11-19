@@ -216,18 +216,20 @@ func (s *Service) fetch(ctx context.Context, req Request, forced string) (fetchO
 	}
 
 	track := trackFromRequest(req)
-	if model.ProviderOf(req.VideoID) == model.ProviderSpotify {
-		if s.spotify == nil {
-			return fetchOutcome{}, nil
-		}
+	if model.ProviderOf(req.VideoID) == model.ProviderSpotify && s.spotify != nil {
 		lyrics, err := s.spotify.Lyrics(ctx, track)
-		if (lyrics == nil || err != nil) && extensionPlain != nil {
+		if err == nil && lyrics != nil {
+			return fetchOutcome{lyrics: lyrics, definitive: true}, nil
+		}
+		if extensionPlain != nil {
 			return fetchOutcome{lyrics: extensionPlain, definitive: true}, nil
 		}
-		if errors.Is(err, provider.ErrNotFound) || errors.Is(err, provider.ErrUnsupported) {
-			return fetchOutcome{definitive: true}, nil
+		// Spotify has none for this song, or refuses its lyrics service
+		// (HTTP 403 for librespot's client): look the song up in the other
+		// sources by title, artist and length, as for any other song.
+		if err != nil {
+			s.log.Debug("Spotify lyrics failed; trying other sources", "error", err)
 		}
-		return fetchOutcome{lyrics: lyrics, definitive: err == nil}, err
 	}
 
 	var errs []error

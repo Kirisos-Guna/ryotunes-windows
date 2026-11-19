@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/devgianlu/go-librespot/session"
+
+	"github.com/ryoku-dev/ryotunes/internal/webplayer"
 )
 
 const (
@@ -62,6 +64,17 @@ func (p *Spotify) pathfinderQuery(ctx context.Context, sess *session.Session, op
 }
 
 func (p *Spotify) sendPathfinder(ctx context.Context, sess *session.Session, operation, hash string, variables, target any) error {
+	// Spotify answers Pathfinder only for the Web Player's own client:
+	// librespot's token gets HTTP 403 (album, artist and search pages did not
+	// load). Where the Web Player runs, its page sends the query, as Myspoti
+	// does, with its own token and client token.
+	if engine := webplayer.Default(); engine != nil {
+		raw, err := engine.Call(ctx, "gql.query", map[string]any{"name": operation, "hash": hash, "variables": variables})
+		if err != nil {
+			return fmt.Errorf("Spotify rejected %s Pathfinder query: %w", operation, err)
+		}
+		return decodePathfinder(operation, bytes.NewReader(raw), target)
+	}
 	body, err := json.Marshal(map[string]any{
 		"operationName": operation, "variables": variables,
 		"extensions": map[string]any{"persistedQuery": map[string]any{"version": 1, "sha256Hash": hash}},
@@ -96,8 +109,13 @@ func (p *Spotify) sendPathfinder(ctx context.Context, sess *session.Session, ope
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("Spotify rejected %s Pathfinder query: HTTP %d", operation, resp.StatusCode)
 	}
+	return decodePathfinder(operation, resp.Body, target)
+}
+
+// decodePathfinder reads a GraphQL answer into target, or its errors.
+func decodePathfinder(operation string, body io.Reader, target any) error {
 	var answer pathfinderEnvelope
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&answer); err != nil {
+	if err := json.NewDecoder(io.LimitReader(body, 8<<20)).Decode(&answer); err != nil {
 		return fmt.Errorf("cannot decode %s Pathfinder response: %w", operation, err)
 	}
 	if len(answer.Errors) > 0 {

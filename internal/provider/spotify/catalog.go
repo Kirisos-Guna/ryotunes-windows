@@ -3,7 +3,6 @@ package spotify
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -478,27 +477,41 @@ func (p *Spotify) searchTracks(ctx context.Context, query string) ([]model.Track
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := sess.Spclient().ContextResolve(ctx, "spotify:search:"+url.QueryEscape(query))
-	if err != nil {
+	// Spotify's search, as the Web Player asks it. (Resolving a
+	// spotify:search: context is no longer supported: "unsupported context
+	// type".)
+	var data struct {
+		Search *struct {
+			Tracks struct {
+				Items []struct {
+					Item struct {
+						Data *struct {
+							pfTrack
+							Album pfAlbum `json:"albumOfTrack"`
+						} `json:"data"`
+					} `json:"item"`
+				} `json:"items"`
+			} `json:"tracksV2"`
+		} `json:"searchV2"`
+	}
+	variables := map[string]any{
+		"searchTerm": query, "offset": 0, "limit": 20, "numberOfTopResults": 5,
+		"includeAudiobooks": false, "includeArtistHasConcertsField": false,
+		"includePreReleases": false, "includeLocalConcertsField": false, "includeAuthors": false,
+	}
+	if err := p.pathfinderQuery(ctx, sess, "searchDesktop", variables, &data); err != nil {
 		return nil, mapProviderError(err)
 	}
-	var uris []string
-	for _, page := range resolved.GetPages() {
-		for _, track := range page.GetTracks() {
-			if strings.HasPrefix(track.GetUri(), "spotify:track:") {
-				uris = append(uris, track.GetUri())
-			}
-		}
+	if data.Search == nil {
+		return nil, fmt.Errorf("searchDesktop Pathfinder response has no search")
 	}
-	known, err := p.trackMetadata(ctx, sess, uris)
-	if err != nil {
-		return nil, mapProviderError(err)
-	}
-	items := make([]model.Track, 0, len(uris))
-	for _, uri := range uris {
-		if track, ok := known[uri]; ok {
-			items = append(items, track)
+	items := make([]model.Track, 0, len(data.Search.Tracks.Items))
+	for _, row := range data.Search.Tracks.Items {
+		track := row.Item.Data
+		if track == nil || !strings.HasPrefix(track.URI, "spotify:track:") {
+			continue
 		}
+		items = append(items, mapPFTrack(track.pfTrack, &track.Album))
 	}
 	return items, nil
 }
