@@ -30,11 +30,11 @@ type Scope struct {
 
 // NewScope creates a stereo sample feed backed by pw-record.
 func NewScope(invalidate func()) *Scope {
-	path, _ := exec.LookPath("pw-record")
-	if path == "" && loopbackAvailable() {
-		path = loopbackSource // Windows: the output device's own samples
+	path := loopbackSource // Windows: the output device's own samples
+	if !loopbackAvailable() {
+		path, _ = exec.LookPath("pw-record")
 	}
-	scope := &Scope{pwRecordPath: path}
+	scope :=&Scope{pwRecordPath: path}
 	scope.capture = newCaptureLifecycle(path, invalidate, scope.start, scope.reset)
 	return scope
 }

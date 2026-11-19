@@ -19,9 +19,12 @@ type Feed struct {
 }
 
 func New(invalidate func()) *Feed {
-	path, _ := exec.LookPath("cava")
-	if path == "" && loopbackAvailable() {
-		path = loopbackSource // Windows: analyse the output device ourselves
+	// Windows: analyse the output device ourselves. A Windows build of cava
+	// may be on PATH, but Ryotunes configures cava for PipeWire, which
+	// captures nothing there (the visualizer stayed blank).
+	path := loopbackSource
+	if !loopbackAvailable() {
+		path, _ = exec.LookPath("cava")
 	}
 	feed := &Feed{cavaPath: path}
 	feed.capture = newCaptureLifecycle(path, invalidate, feed.start, nil)

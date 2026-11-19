@@ -168,3 +168,21 @@ func TestAudioSessions(t *testing.T) {
 		t.Logf("session pid %-6d state %d volume %.2f muted %d peak %.3f %s", pid, state, level, muted, peak, name)
 	}
 }
+
+// TestMixIsFloat reads the SubFormat of a packed WAVEFORMATEXTENSIBLE.
+func TestMixIsFloat(t *testing.T) {
+	var raw [40]byte
+	put16 := func(at int, v uint16) { raw[at], raw[at+1] = byte(v), byte(v>>8) }
+	put16(0, formatTagExtensible) // wFormatTag
+	put16(2, 2)                   // nChannels
+	put16(14, 32)                 // wBitsPerSample
+	put16(16, 22)                 // cbSize
+	*(*windows.GUID)(unsafe.Pointer(&raw[subFormatOffset])) = subtypeIEEEFloat
+	if !mixIsFloat((*waveFormatEx)(unsafe.Pointer(&raw[0]))) {
+		t.Fatal("an extensible float format was not recognised")
+	}
+	raw[subFormatOffset] = 1 // KSDATAFORMAT_SUBTYPE_PCM
+	if mixIsFloat((*waveFormatEx)(unsafe.Pointer(&raw[0]))) {
+		t.Fatal("an extensible PCM format was taken for float")
+	}
+}

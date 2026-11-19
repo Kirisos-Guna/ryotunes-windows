@@ -68,11 +68,26 @@ type waveFormatEx struct {
 	Size           uint16
 }
 
-type waveFormatExtensible struct {
-	waveFormatEx
-	ValidBits   uint16
-	ChannelMask uint32
-	SubFormat   windows.GUID
+// subFormatOffset is where WAVEFORMATEXTENSIBLE keeps its SubFormat GUID:
+// after the packed 18-byte WAVEFORMATEX, the valid bits (2 bytes) and the
+// channel mask (4 bytes). A Go struct embedding waveFormatEx would be padded
+// to 20 bytes and read the GUID 2 bytes late: then float audio was decoded
+// as integers and the visualizer drew noise.
+const subFormatOffset = 18 + 2 + 4
+
+// mixIsFloat reports a mix format of 32-bit float samples.
+func mixIsFloat(format *waveFormatEx) bool {
+	switch format.FormatTag {
+	case formatTagFloat:
+		return true
+	case formatTagExtensible:
+		if format.Size < 22 {
+			return false
+		}
+		subFormat := *(*windows.GUID)(unsafe.Add(unsafe.Pointer(format), subFormatOffset))
+		return subFormat == subtypeIEEEFloat
+	}
+	return false
 }
 
 // comCall calls method index of a COM object's vtable.
@@ -175,10 +190,7 @@ func runLoopbackOn(pick func(enumerator unsafe.Pointer) (unsafe.Pointer, error),
 	}
 	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(format)))
 
-	isFloat := format.FormatTag == formatTagFloat
-	if format.FormatTag == formatTagExtensible {
-		isFloat = (*waveFormatExtensible)(unsafe.Pointer(format)).SubFormat == subtypeIEEEFloat
-	}
+	isFloat := mixIsFloat(format)
 	channels := int(format.Channels)
 	bits := int(format.BitsPerSample)
 	rate := int(format.SamplesPerSec)
