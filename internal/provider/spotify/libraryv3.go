@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/devgianlu/go-librespot/session"
 
@@ -41,34 +42,76 @@ type libraryV3Data struct {
 
 const libraryPage = 50
 
-// libraryV3Items lists one library filter ("Albums" or "Artists").
+// libraryV3Items lists one library filter ("Albums" or "Artists"): the first
+// page, then the rest four pages at a time, in order.
 func (p *Spotify) libraryV3Items(ctx context.Context, sess *session.Session, filter string) ([]model.BrowseItem, error) {
-	var out []model.BrowseItem
-	for offset := 0; offset < 2000; offset += libraryPage {
-		var data libraryV3Data
-		variables := map[string]any{
-			"filters": []string{filter}, "order": nil, "textFilter": "",
-			"features": []string{"LIKED_SONGS", "YOUR_EPISODES_V2", "PRERELEASES", "PRERELEASES_V2", "CLIPS", "EVENTS"},
-			"limit":    libraryPage, "offset": offset,
-			"flatten": false, "expandedFolders": []string{}, "folderUri": nil, "includeFoldersWhenFlattening": true,
-		}
-		if err := p.pathfinderQuery(ctx, sess, "libraryV3", variables, &data); err != nil {
-			return out, err
-		}
-		if data.Me == nil || data.Me.Library == nil {
-			break
-		}
-		rows := data.Me.Library.Items
-		for _, row := range rows {
-			if item, ok := libraryV3Item(row.Item.Data.Typename, row.Item.Data.URI, row.Item.Data.Name, row.Item.Data.Profile.Name, row.Item.Data.Artists, row.Item.Data.Cover, row.Item.Data.Visuals.Avatar); ok {
-				out = append(out, item)
+	first, total, err := p.libraryV3Page(ctx, sess, filter, 0)
+	if err != nil {
+		return nil, err
+	}
+	pages := [][]model.BrowseItem{first}
+	for offset := libraryPage; offset < min(total, libraryMax); offset += libraryPage * libraryParallel {
+		batch := make([][]model.BrowseItem, libraryParallel)
+		errs := make([]error, libraryParallel)
+		var wg sync.WaitGroup
+		for i := range libraryParallel {
+			at := offset + i*libraryPage
+			if at >= min(total, libraryMax) {
+				break
 			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				batch[i], _, errs[i] = p.libraryV3Page(ctx, sess, filter, at)
+			}()
 		}
-		if len(rows) == 0 || offset+len(rows) >= data.Me.Library.TotalCount {
-			break
+		wg.Wait()
+		for i := range libraryParallel {
+			if errs[i] != nil {
+				return flatten(pages), errs[i]
+			}
+			pages = append(pages, batch[i])
 		}
 	}
-	return out, nil
+	return flatten(pages), nil
+}
+
+const (
+	libraryParallel = 4
+	libraryMax      = 2000
+)
+
+// libraryV3Page reads one page of a library filter and the filter's total.
+func (p *Spotify) libraryV3Page(ctx context.Context, sess *session.Session, filter string, offset int) ([]model.BrowseItem, int, error) {
+	var data libraryV3Data
+	variables := map[string]any{
+		"filters": []string{filter}, "order": nil, "textFilter": "",
+		"features": []string{"LIKED_SONGS", "YOUR_EPISODES_V2", "PRERELEASES", "PRERELEASES_V2", "CLIPS", "EVENTS"},
+		"limit":    libraryPage, "offset": offset,
+		"flatten": false, "expandedFolders": []string{}, "folderUri": nil, "includeFoldersWhenFlattening": true,
+	}
+	if err := p.pathfinderQuery(ctx, sess, "libraryV3", variables, &data); err != nil {
+		return nil, 0, err
+	}
+	if data.Me == nil || data.Me.Library == nil {
+		return nil, 0, nil
+	}
+	var out []model.BrowseItem
+	for _, row := range data.Me.Library.Items {
+		d := row.Item.Data
+		if item, ok := libraryV3Item(d.Typename, d.URI, d.Name, d.Profile.Name, d.Artists, d.Cover, d.Visuals.Avatar); ok {
+			out = append(out, item)
+		}
+	}
+	return out, data.Me.Library.TotalCount, nil
+}
+
+func flatten(pages [][]model.BrowseItem) []model.BrowseItem {
+	var out []model.BrowseItem
+	for _, page := range pages {
+		out = append(out, page...)
+	}
+	return out
 }
 
 func libraryV3Item(typename, uri, name, profileName string, artists pfArtists, cover, avatar pfArtwork) (model.BrowseItem, bool) {

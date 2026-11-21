@@ -180,7 +180,7 @@ func (p *Spotify) signIn(ctx context.Context, generation uint64) error {
 	if err != nil {
 		return err
 	}
-	clientToken, err := requestClientToken(ctx, p.http, deviceID)
+	clientToken, err := p.cachedClientToken(ctx, deviceID)
 	if err != nil {
 		return classifySignIn(err)
 	}
@@ -233,7 +233,7 @@ func (p *Spotify) restoreSession(ctx context.Context) (*session.Session, account
 	if err != nil {
 		return nil, accountProfile{}, err
 	}
-	clientToken, err := requestClientToken(ctx, p.http, deviceID)
+	clientToken, err := p.cachedClientToken(ctx, deviceID)
 	if err != nil {
 		return nil, accountProfile{}, classifySignIn(err)
 	}
@@ -693,7 +693,35 @@ func transientFailure(err error) bool {
 	}
 }
 
-func requestClientToken(ctx context.Context, client *http.Client, deviceID string) (string, error) {
+// cachedClientToken reuses the client token of an earlier launch until
+// Spotify's "refresh after" time, for the same device: asking for a new one
+// on every start cost a round trip before the account could sign in.
+func (p *Spotify) cachedClientToken(ctx context.Context, deviceID string) (string, error) {
+	path := filepath.Join(filepath.Dir(p.credPath), "client-token.json")
+	var saved struct {
+		Token     string    `json:"token"`
+		DeviceID  string    `json:"deviceId"`
+		RefreshAt time.Time `json:"refreshAt"`
+	}
+	if raw, err := os.ReadFile(path); err == nil && json.Unmarshal(raw, &saved) == nil &&
+		saved.Token != "" && saved.DeviceID == deviceID && time.Now().Before(saved.RefreshAt) {
+		return saved.Token, nil
+	}
+	token, refreshAfter, err := requestClientToken(ctx, p.http, deviceID)
+	if err != nil {
+		return "", err
+	}
+	saved.Token, saved.DeviceID = token, deviceID
+	saved.RefreshAt = time.Now().Add(refreshAfter)
+	if raw, err := json.Marshal(saved); err == nil && refreshAfter > 0 {
+		_ = atomicWrite(path, raw, 0o600)
+	}
+	return token, nil
+}
+
+// requestClientToken asks Spotify for a client token and how long it may be
+// reused.
+func requestClientToken(ctx context.Context, client *http.Client, deviceID string) (string, time.Duration, error) {
 	body, err := proto.Marshal(&pbhttp.ClientTokenRequest{
 		RequestType: pbhttp.ClientTokenRequestType_REQUEST_CLIENT_DATA_REQUEST,
 		Request: &pbhttp.ClientTokenRequest_ClientData{ClientData: &pbhttp.ClientDataRequest{
@@ -702,29 +730,34 @@ func requestClientToken(ctx context.Context, client *http.Client, deviceID strin
 		}},
 	})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://clienttoken.spotify.com/v1/clienttoken", bytes.NewReader(body))
 	req.Header.Set("Accept", "application/x-protobuf")
 	req.Header.Set("User-Agent", librespot.UserAgent())
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("client token status %d", resp.StatusCode)
+		return "", 0, fmt.Errorf("client token status %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	var answer pbhttp.ClientTokenResponse
 	if err := proto.Unmarshal(data, &answer); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if answer.GetResponseType() != pbhttp.ClientTokenResponseType_RESPONSE_GRANTED_TOKEN_RESPONSE {
-		return "", fmt.Errorf("client token refused")
+		return "", 0, fmt.Errorf("client token refused")
 	}
-	return answer.GetGrantedToken().GetToken(), nil
+	granted := answer.GetGrantedToken()
+	refresh := time.Duration(granted.GetRefreshAfterSeconds()) * time.Second
+	if expires := time.Duration(granted.GetExpiresAfterSeconds()) * time.Second; refresh <= 0 || (expires > 0 && expires < refresh) {
+		refresh = expires
+	}
+	return granted.GetToken(), refresh, nil
 }

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	connectpb "github.com/devgianlu/go-librespot/proto/spotify/connectstate"
@@ -170,14 +171,28 @@ func (p *Spotify) Library(ctx context.Context) (model.Library, error) {
 		return model.Library{}, err
 	}
 	library := model.Library{}
-	tracks, likedErr := p.likedTracks(ctx, sess)
+	// Liked songs, the playlists, saved albums and followed artists load
+	// at once: one after another they took the sum of their times.
+	var tracks []model.Track
+	var root *playlist4pb.SelectedListContent
+	var albums, artists []model.BrowseItem
+	var likedErr, rootErr, albumsErr, artistsErr error
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); tracks, likedErr = p.likedTracks(ctx, sess) }()
+	go func() {
+		defer wg.Done()
+		root, rootErr = sess.Spclient().Rootlist(ctx, sess.Username(), 0, 10000)
+	}()
+	go func() { defer wg.Done(); albums, albumsErr = p.savedAlbums(ctx, sess) }()
+	go func() { defer wg.Done(); artists, artistsErr = p.savedArtists(ctx, sess) }()
+	wg.Wait()
 	if likedErr == nil {
 		library.Liked = tracks
 	} else {
 		p.log.Warn("Spotify liked songs failed", "error", likedErr)
 	}
-	root, err := sess.Spclient().Rootlist(ctx, sess.Username(), 0, 10000)
-	if err == nil {
+	if rootErr == nil {
 		library.Playlists = mapRootlist(root)
 		// Own playlists name their owner by account ID; show the name.
 		p.mu.RLock()
@@ -191,23 +206,21 @@ func (p *Spotify) Library(ctx context.Context) (model.Library, error) {
 			}
 		}
 	} else {
-		p.log.Warn("Spotify rootlist failed", "error", err)
+		p.log.Warn("Spotify rootlist failed", "error", rootErr)
 		if likedErr != nil {
 			// Nothing of the library loaded: report why.
 			return library, mapProviderError(likedErr)
 		}
 	}
-	albums, err := p.savedAlbums(ctx, sess)
-	if err == nil {
+	if albumsErr == nil {
 		library.Albums = albums
 	} else {
-		p.log.Warn("Spotify saved albums failed", "error", err)
+		p.log.Warn("Spotify saved albums failed", "error", albumsErr)
 	}
-	artists, err := p.savedArtists(ctx, sess)
-	if err == nil {
+	if artistsErr == nil {
 		library.Artists = artists
 	} else {
-		p.log.Warn("Spotify saved artists failed", "error", err)
+		p.log.Warn("Spotify saved artists failed", "error", artistsErr)
 	}
 	return library, nil
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"encoding/json"
@@ -407,12 +408,23 @@ func (p *Spotify) SearchMore(context.Context, string) (model.SearchPage, error) 
 
 // SearchAll implements provider.Provider.
 func (p *Spotify) SearchAll(ctx context.Context, query string) (model.SearchAll, error) {
-	tracks, err := p.searchTracks(ctx, query)
+	// The three searches run at once: one after another they took about
+	// three times as long.
+	var tracks []model.Track
+	var albums, playlists []model.BrowseItem
+	var err, albumErr, playlistErr error
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); tracks, err = p.searchTracks(ctx, query) }()
+	go func() { defer wg.Done(); albums, albumErr = p.searchPathfinderCards(ctx, query, "searchAlbums") }()
+	go func() {
+		defer wg.Done()
+		playlists, playlistErr = p.searchPathfinderCards(ctx, query, "searchPlaylists")
+	}()
+	wg.Wait()
 	if err != nil {
 		return model.SearchAll{}, err
 	}
-	albums, albumErr := p.searchPathfinderCards(ctx, query, "searchAlbums")
-	playlists, playlistErr := p.searchPathfinderCards(ctx, query, "searchPlaylists")
 	if albumErr != nil {
 		p.log.Warn("Spotify album search failed", "error", albumErr)
 	}
