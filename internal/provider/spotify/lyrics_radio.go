@@ -151,9 +151,36 @@ func (p *Spotify) StartRadio(ctx context.Context, kind, id string) ([]model.Trac
 		MediaItems []struct {
 			URI string `json:"uri"`
 		} `json:"mediaItems"`
+		// Spotify now answers with the station's songs themselves.
+		Tracks []struct {
+			URI string `json:"uri"`
+		} `json:"tracks"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&answer); err != nil {
 		return nil, "", mapProviderError(err)
+	}
+	if len(answer.Tracks) > 0 {
+		// The song the radio is for plays first, as on YouTube Music.
+		seed := "spotify:track:" + bare
+		uris := []string{seed}
+		for _, track := range answer.Tracks {
+			if strings.HasPrefix(track.URI, "spotify:track:") && track.URI != seed {
+				uris = append(uris, track.URI)
+			}
+		}
+		known, err := p.trackMetadata(ctx, sess, uris)
+		if err != nil {
+			return nil, "", mapProviderError(err)
+		}
+		items := make([]model.Track, 0, len(uris))
+		for _, uri := range uris {
+			if track, ok := known[uri]; ok {
+				items = append(items, track)
+			}
+		}
+		if len(items) > 0 {
+			return items, "Track Radio", nil
+		}
 	}
 	playlistID := ""
 	for _, item := range answer.MediaItems {

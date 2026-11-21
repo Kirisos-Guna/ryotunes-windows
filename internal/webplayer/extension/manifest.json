@@ -3,7 +3,7 @@
   "name": "Ryotunes Spotify player",
   "version": "1.0.0",
   "description": "Lets Ryotunes control Spotify's Web Player in Ryotunes' own browser profile, and sign in to YouTube and SoundCloud there.",
-  "permissions": ["cookies", "system.display", "alarms"],
+  "permissions": ["cookies", "system.display", "alarms", "scripting"],
   "host_permissions": [
     "https://open.spotify.com/*",
     "http://127.0.0.1/*",

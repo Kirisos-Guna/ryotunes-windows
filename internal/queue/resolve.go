@@ -13,6 +13,37 @@ import (
 )
 
 func (q *Queue) playIndex(ctx context.Context, index int, paused bool) error {
+	// A network blip is not an unavailable song: the song is tried again
+	// for about half a minute, then playback pauses on it, instead of
+	// skipping it and every song after it while the network is down.
+	networkTries, triedIndex := 0, index
+	waitForNetwork := func(err error, item model.Track, gen uint64) (retry bool) {
+		if !networkFailure(err) {
+			return false
+		}
+		if triedIndex != index {
+			networkTries, triedIndex = 0, index
+		}
+		if networkTries >= len(networkRetryDelays) {
+			_ = q.player.Pause()
+			q.bus.Emit(protocol.EventPlaybackError, protocol.MessageEvent{Message: "Couldn't reach the network, so " + item.Title + " is paused. Press play to try again."})
+			return false
+		}
+		if networkTries == 0 {
+			q.bus.Emit(protocol.EventPlaybackNotice, protocol.MessageEvent{Message: "Waiting for the network to play " + item.Title})
+		}
+		delay := networkRetryDelays[networkTries]
+		networkTries++
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(delay):
+		}
+		q.mu.Lock()
+		same := q.generation == gen
+		q.mu.Unlock()
+		return same
+	}
 	for {
 		q.mu.Lock()
 		if index < 0 || index >= len(q.state.items) {
@@ -24,6 +55,12 @@ func (q *Queue) playIndex(ctx context.Context, index int, paused bool) error {
 		q.mu.Unlock()
 
 		stream, cached, err := q.resolve(ctx, item, true)
+		if err != nil && waitForNetwork(err, item, gen) {
+			continue
+		}
+		if err != nil && networkFailure(err) {
+			return err // paused on it: waitForNetwork said why
+		}
 		if err != nil {
 			q.log.Info("track resolve failed", "track_id", item.VideoID, "title", item.Title, "error", err)
 			if errors.Is(err, provider.ErrSignInRequired) {
@@ -89,6 +126,22 @@ func (q *Queue) playIndex(ctx context.Context, index int, paused bool) error {
 				q.player.SetLoudness(stream.LoudnessDB)
 				err = q.player.Load(ctx, stream, startAt, paused)
 			}
+		}
+		if err != nil && waitForNetwork(err, item, gen) {
+			q.mu.Lock()
+			if q.pendingStart == start {
+				q.pendingStart = nil
+			}
+			q.mu.Unlock()
+			continue
+		}
+		if err != nil && networkFailure(err) {
+			q.mu.Lock()
+			if q.pendingStart == start {
+				q.pendingStart = nil
+			}
+			q.mu.Unlock()
+			return err
 		}
 		if err != nil {
 			q.log.Info("track load failed", "track_id", item.VideoID, "title", item.Title, "cached", cached, "error", err)

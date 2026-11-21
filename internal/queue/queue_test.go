@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -104,8 +105,10 @@ type fakeProvider struct {
 	nextCalls    atomic.Int32
 	resolveCalls atomic.Int32
 	resolveErr   error
-	nextStarted  chan struct{}
-	blockNext    bool
+	// networkDown fails this many Resolve calls with a network error first.
+	networkDown atomic.Int32
+	nextStarted chan struct{}
+	blockNext   bool
 }
 
 func (f *fakeProvider) ID() model.Provider {
@@ -153,6 +156,9 @@ func (f *fakeProvider) PlaylistMore(context.Context, string) (model.PlaylistTrac
 func (f *fakeProvider) Library(context.Context) (model.Library, error) { return model.Library{}, nil }
 func (f *fakeProvider) Resolve(_ context.Context, track model.Track, _ model.Quality) (model.Stream, error) {
 	f.resolveCalls.Add(1)
+	if f.networkDown.Add(-1) >= 0 {
+		return model.Stream{}, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	}
 	if f.resolveErr != nil {
 		return model.Stream{}, f.resolveErr
 	}

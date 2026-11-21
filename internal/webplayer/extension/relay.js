@@ -6,6 +6,8 @@
 // the background script, which reconnects to Ryotunes (otherwise Ryotunes
 // stayed "not connected" until the page reloaded).
 (() => {
+  if (window.__ryotunesRelay) return; // added again by connectPlayerPage
+  window.__ryotunesRelay = true;
   let port = null;
   let queued = [];
 

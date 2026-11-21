@@ -47,6 +47,8 @@ async function connect() {
   socket = ws;
   ws.onopen = () => {
     if (socket !== ws) return;
+    // A page that is open but never connected (see connectPlayerPage).
+    setTimeout(connectPlayerPage, 2000);
     // A new page queued its hello (below): it goes first, then the rest.
     for (const text of pending) ws.send(text);
     pending = [];
@@ -157,22 +159,35 @@ chrome.runtime.onConnect.addListener(newPage => {
   });
 });
 
-// The browser opens the Web Player as it starts, and the page can load
-// before this extension does: then its scripts were never injected and the
-// page never connects. Reload such a page (never the sign-in page, which is
-// on another host), a few times at most.
+// The browser restores the Web Player as it starts, and the page can load
+// before this extension does: its scripts were then never added, and the
+// page never connected (Ryotunes waited minutes for it). Add them to such a
+// page directly; reload it only if that fails (a few times at most).
 let reloads = 0;
-function reloadUnconnectedPlayer() {
-  if (page || reloads >= 3) return;
-  chrome.tabs.query({ url: 'https://open.spotify.com/*' }, tabs => {
-    if (page || chrome.runtime.lastError) return;
+let injecting = false;
+async function connectPlayerPage() {
+  if (page || injecting) return;
+  injecting = true;
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://open.spotify.com/*' });
     for (const tab of tabs) {
-      reloads++;
-      chrome.tabs.reload(tab.id);
+      if (page) return;
+      if (tab.status !== 'complete') continue; // its scripts may still come; look again later
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['page.js', 'player-bridge.js'], world: 'MAIN' });
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['relay.js'] });
+      } catch (e) {
+        if (reloads < 3) {
+          reloads++;
+          chrome.tabs.reload(tab.id);
+        }
+      }
     }
-  });
+  } finally {
+    injecting = false;
+  }
 }
-setTimeout(reloadUnconnectedPlayer, 3000);
+setTimeout(connectPlayerPage, 3000);
 
 // An alarm wakes the service worker if the browser stopped it (idle, sleep):
 // timers do not survive that.
@@ -185,6 +200,6 @@ chrome.alarms.onAlarm.addListener(() => {
 setInterval(() => {
   if (isOpen()) send({ type: 'ping' });
   else connect();
-  reloadUnconnectedPlayer();
+  connectPlayerPage();
 }, 20000);
 connect();
