@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strings"
@@ -374,16 +375,44 @@ func (p *Player) webEnd() {
 		return
 	}
 	p.web.ended = true
-	continues := p.web.queued != ""
+	queued := p.web.queued
 	p.web.mu.Unlock()
-	if continues {
-		// Skip to the queued song (already loaded) now: at the end of a
-		// one-song context Spotify may instead rewind it, paused.
-		go p.webCall("player.next", nil)
+	if queued != "" {
+		go p.moveToQueued(queued)
 	} else {
 		go p.webCall("player.pause", nil)
 	}
 	p.emit(Event{Kind: EndOfFile})
+}
+
+// moveToQueued goes on to the queued song at the end of ours: by Spotify's
+// "next" when the song is first in its queue (already loaded), else by
+// playing it directly. "Next" with the song missing from Spotify's queue
+// played a song of Spotify's own choosing until Ryotunes noticed.
+func (p *Player) moveToQueued(uri string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if p.webQueuedFirst(ctx, uri) {
+		_ = p.webCall("player.next", nil)
+		return
+	}
+	if _, err := p.web.engine.Call(ctx, "player.play", map[string]any{"contextUri": uri, "positionMs": 0}); err != nil {
+		p.log.Warn("Spotify Web Player command failed", "method", "player.play", "error", err)
+	}
+}
+
+// webQueuedFirst reports that uri is first in Spotify's own queue.
+func (p *Player) webQueuedFirst(ctx context.Context, uri string) bool {
+	raw, err := p.web.engine.Call(ctx, "player.queue", nil)
+	if err != nil {
+		return false
+	}
+	var queue struct {
+		Queued []struct {
+			URI string `json:"uri"`
+		} `json:"queued"`
+	}
+	return json.Unmarshal(raw, &queue) == nil && len(queue.Queued) > 0 && queue.Queued[0].URI == uri
 }
 
 // webPrefetch puts the next song in Spotify's queue (see webSession.queued).
@@ -396,6 +425,12 @@ func (p *Player) webPrefetch(uri string) {
 	p.web.queued = uri
 	p.web.mu.Unlock()
 	go func() {
+		// Only once the page plays our song: starting a song empties
+		// Spotify's queue, and a song queued before was lost (Spotify then
+		// went on to a song of its own choosing).
+		if !p.waitForOurSong(uri) {
+			return
+		}
 		// Spotify keeps its queue with the account, across sessions: songs
 		// queued before (by Ryotunes or elsewhere) would play first.
 		_ = p.webCall("queue.clear", nil)
@@ -404,15 +439,33 @@ func (p *Player) webPrefetch(uri string) {
 			// Load it now (file, first audio, licence): Spotify does so only
 			// 10 s before the end, too late after a seek near the end.
 			_ = p.webCall("player.preloadNext", nil)
+			return
 		}
-		if err != nil {
-			p.web.mu.Lock()
-			if p.web.queued == uri {
-				p.web.queued = ""
-			}
-			p.web.mu.Unlock()
+		p.web.mu.Lock()
+		if p.web.queued == uri {
+			p.web.queued = ""
 		}
+		p.web.mu.Unlock()
 	}()
+}
+
+// waitForOurSong waits until the page plays the song Ryotunes started, for
+// as long as uri is still the song to queue after it.
+func (p *Player) waitForOurSong(uri string) bool {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		p.web.mu.Lock()
+		wanted, active, seen, current := p.web.queued == uri, p.web.active, p.web.seen, p.web.uri
+		p.web.mu.Unlock()
+		if !wanted || !active {
+			return false
+		}
+		if state := p.web.engine.State(); seen && state.Track != nil && state.Track.URI == current {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 // webForgetQueued empties Spotify's queue of a song Ryotunes put there and
