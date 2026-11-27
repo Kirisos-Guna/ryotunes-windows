@@ -69,6 +69,7 @@ const (
 
 // Restore restores cached Spotify credentials and emits the startup result event.
 func (p *Spotify) Restore(ctx context.Context) error {
+	defer p.markRestored()
 	p.restoreMu.Lock()
 	defer p.restoreMu.Unlock()
 	p.authMu.Lock()
@@ -760,4 +761,11 @@ func requestClientToken(ctx context.Context, client *http.Client, deviceID strin
 		refresh = expires
 	}
 	return granted.GetToken(), refresh, nil
+}
+
+// markRestored lets the requests waiting for the startup restore go on.
+func (p *Spotify) markRestored() {
+	if p.restored != nil {
+		p.restoredOnce.Do(func() { close(p.restored) })
+	}
 }

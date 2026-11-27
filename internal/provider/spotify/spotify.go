@@ -79,7 +79,12 @@ type Spotify struct {
 	authGeneration uint64
 
 	restoreMu sync.Mutex
-	profileMu sync.Mutex
+	// restored closes when the startup restore has finished (or failed):
+	// a page asked for before it started waits for it instead of reading
+	// "Sign in to Spotify" for a few seconds.
+	restored     chan struct{}
+	restoredOnce sync.Once
+	profileMu    sync.Mutex
 
 	hashMu sync.Mutex
 	hashes *hashRegistry
@@ -118,6 +123,7 @@ func New(opts Options) (*Spotify, error) {
 		legacyCredPath: filepath.Join(legacyRoot, "credentials.json"), legacyDevicePath: filepath.Join(legacyRoot, "device.id"),
 		migratedPath: filepath.Join(root, "1x-migrated"),
 		events:       opts.Events, log: opts.Log, http: opts.HTTPClient, restoreTimeout: opts.RestoreTimeout,
+		restored: make(chan struct{}),
 	}
 	p.liblog = &librespotLogger{log: opts.Log}
 	if err := p.migrateLegacyCache(); err != nil {
@@ -223,6 +229,15 @@ func (p *Spotify) waitForRestore(ctx context.Context) bool {
 		return false
 	}
 	deadline := time.Now().Add(20 * time.Second)
+	if p.restored != nil {
+		select {
+		case <-p.restored:
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Until(deadline)):
+			return false
+		}
+	}
 	for !p.restoreMu.TryLock() {
 		if time.Now().After(deadline) {
 			return false
