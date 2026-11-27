@@ -1,6 +1,7 @@
 package chrome
 
 import (
+	"gioui.org/font"
 	"image"
 	"image/color"
 	"math"
@@ -59,36 +60,39 @@ type lyricLineMotion struct {
 
 // Lyrics resolves, caches, and follows the current track's lyric document.
 type Lyrics struct {
-	scroll      look.Scroller
-	lineClicks  map[lyricLineKey]*kit.Click
-	follow      kit.Plaque
-	retry       kit.Plaque
-	lyrics      *model.Lyrics
-	timed       []int
-	words       [][]look.KaraokeWord
-	karaoke     []look.Karaoke
-	rowTops     []int
-	rowSeen     []uint64
-	laidRows    []int
-	trackID     string
-	requestedID uint64
-	revision    uint64
-	loading     bool
-	stale       bool
-	err         string
-	offsetMS    int64
-	active      int
-	lastActive  int
-	lineMotion  lyricLineMotion
-	manualUntil time.Time
-	lastTarget  int
-	romanized   bool
-	forceAnchor bool
-	generation  uint64
-	clockAt     time.Time
-	clockMS     int64
-	clockSpeed  float64
-	clockReady  bool
+	scroll     look.Scroller
+	lineClicks map[lyricLineKey]*kit.Click
+	follow     kit.Plaque
+	retry      kit.Plaque
+	lyrics     *model.Lyrics
+	// undrawable caches look.Undrawable for undrawableFor.
+	undrawableFor *model.Lyrics
+	undrawable    bool
+	timed         []int
+	words         [][]look.KaraokeWord
+	karaoke       []look.Karaoke
+	rowTops       []int
+	rowSeen       []uint64
+	laidRows      []int
+	trackID       string
+	requestedID   uint64
+	revision      uint64
+	loading       bool
+	stale         bool
+	err           string
+	offsetMS      int64
+	active        int
+	lastActive    int
+	lineMotion    lyricLineMotion
+	manualUntil   time.Time
+	lastTarget    int
+	romanized     bool
+	forceAnchor   bool
+	generation    uint64
+	clockAt       time.Time
+	clockMS       int64
+	clockSpeed    float64
+	clockReady    bool
 	// sourceLine is "Lyrics from <source>", built when the source changes
 	sourceOf   string
 	sourceLine string
@@ -360,10 +364,26 @@ func (lyrics *Lyrics) layoutState(gtx layout.Context, e *env.Env) (layout.Dimens
 	case lyrics.lyrics.Instrumental:
 		return widgets.EmptyState(e, look.Icon.Lyrics, "No lyrics for this track", "This recording is instrumental.")(gtx), true
 	case len(lyrics.lyrics.Lines) == 0:
+	case lyrics.cannotDraw(e):
+		return widgets.EmptyState(e, look.Icon.Lyrics, "No lyrics for this track", "This PC has no font for these lyrics.")(gtx), true
 	default:
 		return layout.Dimensions{}, false
 	}
 	return widgets.EmptyState(e, look.Icon.Lyrics, "No lyrics for this track", "")(gtx), true
+}
+
+// cannotDraw reports lyrics whose script this PC has no font for: they
+// would show as boxes.
+func (lyrics *Lyrics) cannotDraw(e *env.Env) bool {
+	if lyrics.undrawableFor != lyrics.lyrics {
+		lyrics.undrawableFor = lyrics.lyrics
+		lines := make([]string, 0, len(lyrics.lyrics.Lines))
+		for _, line := range lyrics.lyrics.Lines {
+			lines = append(lines, line.Text)
+		}
+		lyrics.undrawable = look.Undrawable(e.Th.Shaper, font.Font{}, lines)
+	}
+	return lyrics.undrawable
 }
 
 func (lyrics *Lyrics) layoutDocument(gtx layout.Context, e *env.Env, size LyricsSize) layout.Dimensions {
@@ -723,7 +743,7 @@ func (lyrics *Lyrics) lineProgress(index int) float32 {
 }
 
 func (lyrics *Lyrics) layoutCompact(gtx layout.Context, e *env.Env) layout.Dimensions {
-	if lyrics.lyrics == nil || lyrics.lyrics.Instrumental || !lyrics.lyrics.Synced || len(lyrics.lyrics.Lines) == 0 {
+	if lyrics.lyrics == nil || lyrics.lyrics.Instrumental || !lyrics.lyrics.Synced || len(lyrics.lyrics.Lines) == 0 || lyrics.cannotDraw(e) {
 		// The mini stage is a small square, not a page: no content inset.
 		empty := kit.Empty{Icon: look.Icon.Lyrics, Title: "No lyrics for this track"}
 		return empty.Layout(gtx, e.Th.Theme)

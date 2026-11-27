@@ -88,6 +88,15 @@ func karaokeSourceWords(line model.LyricsLine, lineEnd uint64, rtl bool) ([]Kara
 			spaceBefore = len(words) > 0 && strings.IndexFunc(remaining[:at], unicode.IsSpace) >= 0
 			remaining = remaining[at+len(trimmed):]
 		}
+		// A piece that starts with a combining mark (an Indic vowel sign or
+		// virama, split from its letter by the timing source) belongs to the
+		// piece before it: shaped alone it showed as a box or dotted circle.
+		if first, _ := utf8.DecodeRuneInString(trimmed); len(words) > 0 && unicode.In(first, unicode.Mn, unicode.Me, unicode.Mc) {
+			words[len(words)-1].Text += trimmed
+			words[len(words)-1].EndMS = max(words[len(words)-1].EndMS, end)
+			previousStart, previousEnd = start, end
+			continue
+		}
 		pieces := []string{trimmed}
 		if karaokeContainsNoSpaceScript(trimmed) {
 			tokens := splitKaraokeText(trimmed)

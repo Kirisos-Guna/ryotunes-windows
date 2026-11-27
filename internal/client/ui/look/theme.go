@@ -76,7 +76,7 @@ type Theme struct {
 // NewThemeFor builds the theme the desktop asks for (theme.NewFor), which
 // also sets the process's reduced motion from it.
 func NewThemeFor(desktop palette.Desktop, density libtheme.Density, provider ...model.Provider) *Theme {
-	return newTheme(libtheme.NewFor(desktop), desktop, density, provider)
+	return newTheme(libtheme.NewFor(desktop, libtheme.WithFontCollection(scriptFonts())), desktop, density, provider)
 }
 
 // NewTheme builds a Lithic theme on caller-chosen roles (theme.New), for
