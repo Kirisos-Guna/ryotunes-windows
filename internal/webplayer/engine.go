@@ -57,6 +57,10 @@ const (
 // opened its window on Spotify's sign-in page.
 var ErrSignInRequired = errors.New("Sign in to Spotify in the window that just opened, then press play again.")
 
+// ErrWidevinePending is a new player still downloading Widevine, without
+// which Spotify's songs play silently.
+var ErrWidevinePending = errors.New("Spotify's player is finishing a one-time setup on this PC. Press play again in a minute or two.")
+
 // Track is the page player's current item.
 type Track struct {
 	Kind       string `json:"kind"`
@@ -113,6 +117,9 @@ type Engine struct {
 	// signedInUntil caches a sign-in check (signedIn).
 	signedInUntil time.Time
 	windows       int // sign-in windows OpenWindow opened: not parked
+	// widevineAt is when the browser was launched without Widevine (zero
+	// once the profile has it): see WidevineReady.
+	widevineAt time.Time
 	state         State
 	listeners     []func(State)
 	nextID        int64
@@ -210,6 +217,7 @@ func (e *Engine) launch() error {
 	if strings.EqualFold(filepath.Base(browser), "brave.exe") {
 		optInWidevine(e.profile)
 	}
+	widevine := seedWidevine(e.profile)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -252,7 +260,15 @@ func (e *Engine) launch() error {
 	e.mu.Lock()
 	e.cmd, e.exited, e.server, e.token = cmd, exited, server, token
 	e.ready, e.readyDone = make(chan struct{}), false
+	e.widevineAt = time.Time{}
+	if !widevine {
+		e.widevineAt = time.Now()
+	}
 	e.mu.Unlock()
+	if !widevine {
+		e.log.Info("Spotify Web Player is waiting for the browser to download Widevine")
+		go e.awaitWidevine(exited)
+	}
 	go func() {
 		_ = cmd.Wait()
 		close(exited)
@@ -622,6 +638,16 @@ func (e *Engine) ShowSignIn(ctx context.Context) error {
 
 func (e *Engine) hideAfterSignIn(pid int) {
 	deadline := time.Now().Add(15 * time.Minute)
+	defer func() {
+		// Given up on, the window is parked again; the next song shows it.
+		e.mu.Lock()
+		shown := e.shown
+		e.shown = false
+		e.mu.Unlock()
+		if shown {
+			showBrowser(pid, false)
+		}
+	}()
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -635,6 +661,39 @@ func (e *Engine) hideAfterSignIn(pid int) {
 			e.log.Info("Spotify Web Player signed in")
 			return
 		}
+	}
+}
+
+// widevineWait bounds WidevineReady: a browser that keeps Widevine somewhere
+// else is not kept from playing for longer.
+const widevineWait = 10 * time.Minute
+
+// WidevineReady reports whether the player can decrypt Spotify's audio: a new
+// profile has no Widevine until the browser downloads it, a few minutes after
+// its first launch, and songs play silently until then.
+func (e *Engine) WidevineReady() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.widevineAt.IsZero() || time.Since(e.widevineAt) > widevineWait
+}
+
+// awaitWidevine waits for the browser to download Widevine, then reloads the
+// player, which looked for it when it loaded.
+func (e *Engine) awaitWidevine(exited <-chan struct{}) {
+	for !hasWidevine(e.profile) {
+		select {
+		case <-exited:
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+	e.mu.Lock()
+	e.widevineAt = time.Time{}
+	signingIn := e.shown || e.windows > 0
+	e.mu.Unlock()
+	e.log.Info("Spotify Web Player has Widevine")
+	if !signingIn {
+		_ = e.send(map[string]any{"type": "navigate", "url": playerURL})
 	}
 }
 

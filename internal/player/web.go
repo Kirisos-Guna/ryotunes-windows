@@ -147,6 +147,10 @@ func (p *Player) startWeb(ctx context.Context, s model.Stream, startAt float64, 
 		}
 		return webplayer.ErrSignInRequired
 	}
+	if !engine.WidevineReady() {
+		p.deactivateWeb()
+		return webplayer.ErrWidevinePending
+	}
 	// Always say where to start, 0 included: without it Spotify resumes the
 	// song where this account last stopped it, not from the beginning.
 	args := map[string]any{"contextUri": uri, "positionMs": int64(startAt * 1000)}
@@ -286,6 +290,9 @@ func (p *Player) webReload(resume bool) error {
 			return err
 		}
 		return webplayer.ErrSignInRequired
+	}
+	if !engine.WidevineReady() {
+		return webplayer.ErrWidevinePending
 	}
 	args := map[string]any{"contextUri": uri, "positionMs": int64(max(0, p.Position()) * 1000)}
 	if _, err := engine.Call(ctx, "player.play", args); err != nil {
